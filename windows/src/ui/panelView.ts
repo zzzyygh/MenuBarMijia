@@ -2,6 +2,7 @@ import type { MenuMijiaWindowsApp } from "./app.js";
 import { t } from "../core/i18n.js";
 import { maskedMiUserId } from "../core/miCloudClient.js";
 import { SF_ICONS } from "./appConstants.js";
+import { applyPanelOpacity } from "./panelPrefs.js";
 import { quickActions } from "./demo.js";
 
   export function renderPanel(host: MenuMijiaWindowsApp): void {
@@ -12,6 +13,7 @@ import { quickActions } from "./demo.js";
         : null;
     const scheme = host.effectiveAppearance;
     host.root.dataset.scheme = scheme;
+    applyPanelOpacity(host.root, host.settings.panelOpacity);
     host.root.classList.toggle("is-grok-enabled", host.settings.enableGrokBall);
     host.root.classList.toggle("is-grok-expanded", host.settings.enableGrokBall && host.isGrokBallStageExpanded);
     host.root.classList.toggle("is-native-host", Boolean(window.__TAURI_INTERNALS__));

@@ -15,6 +15,7 @@ import {
   localizeFanMode,
   moveInOrder,
   normalizeGlobalShortcut,
+  normalizePanelOpacity,
   pageSections,
   parseGlobalShortcut,
   parsePanelPlacement,
@@ -206,5 +207,16 @@ describe("panel placement (#204)", () => {
     for (const value of [undefined, null, {}, { anchor: "middle" }, "bottomLeft", 3]) {
       assert.deepEqual(parsePanelPlacement(value), { anchor: "auto" });
     }
+  });
+});
+
+describe("panel opacity (#252)", () => {
+  it("keeps 60–100, rounds, and falls back to the pre-#252 default", () => {
+    assert.equal(normalizePanelOpacity(undefined), 90);
+    assert.equal(normalizePanelOpacity("80"), 90);
+    assert.equal(normalizePanelOpacity(Number.NaN), 90);
+    assert.equal(normalizePanelOpacity(0), 60);
+    assert.equal(normalizePanelOpacity(150), 100);
+    assert.equal(normalizePanelOpacity(74.6), 75);
   });
 });

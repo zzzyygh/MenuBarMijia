@@ -255,6 +255,8 @@ const CATALOG: Readonly<Record<string, readonly [string, string]>> = {
   "面板皮肤": ["面板皮肤", "Panel skin"],
   "经典以外的皮肤带有：卡片依次入场、在灯上左右拖动调亮度、按住「全关」0.6 秒确认。长按卡片可以拖动排序，右键卡片可以改大小、分组和重命名。": ["经典以外的皮肤带有：卡片依次入场、在灯上左右拖动调亮度、按住「全关」0.6 秒确认。长按卡片可以拖动排序，右键卡片可以改大小、分组和重命名。", "Skins other than Classic animate cards in, let you drag on a light to dim it, and require holding “All off” for 0.6 s. Long-press to reorder; right-click a card to resize, group or rename it."],
   "面板高度": ["面板高度", "Panel height"],
+  "面板不透明度": ["面板不透明度", "Panel opacity"],
+  "壁纸透出导致文字看不清时调高；100% 为不透明。": ["壁纸透出导致文字看不清时调高；100% 为不透明。", "Raise this if the wallpaper makes text hard to read; 100% is solid."],
   "面板位置": ["面板位置", "Panel position"],
   "跟随任务栏": ["跟随任务栏", "Follow the taskbar"],
   "左上": ["左上", "Top left"],

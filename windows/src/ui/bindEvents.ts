@@ -117,6 +117,7 @@ import {
   SKINS,
   TILE_SIZES,
   applyOrder,
+  applyPanelOpacity,
   targetSize,
   releaseVelocity,
   projectedOffset,
@@ -129,6 +130,7 @@ import {
   moveInOrder,
   nextSize,
   normalizeGlobalShortcut,
+  normalizePanelOpacity,
   pageSections,
   parsePanelPlacement,
   recordShortcutFromKeyEvent,
@@ -401,6 +403,22 @@ import type { MenuMijiaWindowsApp } from "./app.js";
         host.render();
       });
     });
+    const opacitySlider = host.root.querySelector<HTMLInputElement>("#settings-panel-opacity");
+    if (opacitySlider) {
+      // Dragging applies live without a re-render (which would drop the drag); releasing saves (#252).
+      const applyOpacity = (): void => {
+        host.settings.panelOpacity = normalizePanelOpacity(Number(opacitySlider.value));
+        applyPanelOpacity(host.root, host.settings.panelOpacity);
+        opacitySlider.setAttribute("aria-valuenow", String(host.settings.panelOpacity));
+        const label = host.root.querySelector("#settings-panel-opacity-value");
+        if (label) label.textContent = `${host.settings.panelOpacity}%`;
+      };
+      opacitySlider.addEventListener("input", applyOpacity);
+      opacitySlider.addEventListener("change", () => {
+        applyOpacity();
+        host.saveSettings();
+      });
+    }
     host.root.querySelector("#btn-toggle-appearance")?.addEventListener("click", () => {
       host.settings.appearance = host.effectiveAppearance === "light" ? "dark" : "light";
       host.saveSettings();

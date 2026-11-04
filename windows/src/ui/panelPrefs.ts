@@ -29,6 +29,25 @@ export const SKINS: ReadonlyArray<{ readonly id: AppSkin; readonly title: string
   { id: "classic", get title() { return t("经典"); } },
 ];
 
+/**
+ * Panel background opacity in percent (#252). WebView2 does not blur the desktop behind a
+ * transparent window, so a bright or busy wallpaper shows through the panel; 100 is solid.
+ */
+export const PANEL_OPACITY_MIN = 60;
+export const PANEL_OPACITY_MAX = 100;
+export const DEFAULT_PANEL_OPACITY = 90;
+
+/** Missing, non-numeric or out-of-range values fall back into 60–100; the default matches the pre-#252 look. */
+export function normalizePanelOpacity(value: unknown): number {
+  if (typeof value !== "number" || !Number.isFinite(value)) return DEFAULT_PANEL_OPACITY;
+  return Math.min(PANEL_OPACITY_MAX, Math.max(PANEL_OPACITY_MIN, Math.round(value)));
+}
+
+/** The panel background CSS reads `--panel-opacity` as a 0.6–1 fraction. */
+export function applyPanelOpacity(root: HTMLElement, percent: number): void {
+  root.style.setProperty("--panel-opacity", String(normalizePanelOpacity(percent) / 100));
+}
+
 export type PanelHeight = "compact" | "standard" | "tall" | "max";
 
 export const PANEL_HEIGHTS: ReadonlyArray<{ readonly id: PanelHeight; readonly title: string; readonly px: number }> = [

@@ -8,7 +8,9 @@ import {
   PANEL_HEIGHTS,
   SKINS,
   emptyLayoutPrefs,
+  DEFAULT_PANEL_OPACITY,
   normalizeGlobalShortcut,
+  normalizePanelOpacity,
   type AppSkin,
   type PanelHeight,
 } from "./panelPrefs.js";
@@ -137,6 +139,7 @@ export function loadSettings(): LoadedSettings {
               ? parsed.appearance
               : "system",
           panelHeight: PANEL_HEIGHTS.some((h) => h.id === parsed.panelHeight) ? (parsed.panelHeight as PanelHeight) : "standard",
+          panelOpacity: normalizePanelOpacity(parsed.panelOpacity),
           climatePanel: parsed.climatePanel ?? true,
           showQuickActionsBar: parsed.showQuickActionsBar ?? true,
           enableGrokBall: parsed.enableGrokBall ?? false,
@@ -197,6 +200,7 @@ export function loadSettings(): LoadedSettings {
       skin: "classic",
       appearance: "system",
       panelHeight: "standard",
+      panelOpacity: DEFAULT_PANEL_OPACITY,
       climatePanel: true,
       showQuickActionsBar: true,
       enableGrokBall: false,

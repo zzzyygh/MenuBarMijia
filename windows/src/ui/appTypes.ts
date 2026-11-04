@@ -90,6 +90,8 @@ export interface PersistedSettings {
   skin: AppSkin;
   appearance: AppAppearance;
   panelHeight: PanelHeight;
+  /** Panel background opacity, 60–100 percent (#252). */
+  panelOpacity: number;
   climatePanel: boolean;
   showQuickActionsBar: boolean;
   enableGrokBall: boolean;

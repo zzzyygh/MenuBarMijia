@@ -15,6 +15,8 @@ import {
   DEFAULT_GLOBAL_SHORTCUT,
   PANEL_ANCHORS,
   PANEL_HEIGHTS,
+  PANEL_OPACITY_MAX,
+  PANEL_OPACITY_MIN,
   SKINS,
   type PanelAnchor,
 } from "./panelPrefs.js";
@@ -62,6 +64,18 @@ export interface SettingsViewContext {
                   `<button class="cc-seg-pill ${ctx.settings.appearance === a.id ? "is-active" : ""}" data-appearance="${a.id}" aria-pressed="${ctx.settings.appearance === a.id}">${ctx.escapeHtml(a.title)}</button>`,
               ).join("")}
             </div>
+          </div>
+
+          <div class="cc-field">
+            <div class="cc-slider-label">
+              <label for="settings-panel-opacity">${t("面板不透明度")}</label>
+              <strong id="settings-panel-opacity-value">${ctx.settings.panelOpacity}%</strong>
+            </div>
+            <div class="cc-opacity-row">
+              <input id="settings-panel-opacity" class="cc-range" type="range" min="${PANEL_OPACITY_MIN}" max="${PANEL_OPACITY_MAX}" step="1" value="${ctx.settings.panelOpacity}" aria-valuemin="${PANEL_OPACITY_MIN}" aria-valuemax="${PANEL_OPACITY_MAX}" aria-valuenow="${ctx.settings.panelOpacity}" />
+              <span class="cc-opacity-preview" aria-hidden="true"><span class="cc-opacity-preview-panel">Aa</span></span>
+            </div>
+            <p class="cc-field-hint">${t("壁纸透出导致文字看不清时调高；100% 为不透明。")}</p>
           </div>
 
           <div class="cc-field">

@@ -3625,3 +3625,47 @@ describe("light-group folding (#214)", () => {
     assert.deepEqual(tileIds(), [groupDid, memberA, memberB].sort());
   });
 });
+
+describe("Panel opacity (#252)", () => {
+  function storedOpacity(): unknown {
+    return (JSON.parse(localStorage.getItem("menumijia.windows.settings.v2") ?? "{}") as { panelOpacity?: unknown }).panelOpacity;
+  }
+
+  it("defaults to 90%, applies live while dragging, saves on release, and survives a restart", async () => {
+    startDemo();
+    const root = element("#app");
+    assert.equal(root.style.getPropertyValue("--panel-opacity"), "0.9");
+
+    await click("#btn-settings");
+    const slider = element("#settings-panel-opacity") as HTMLInputElement;
+    assert.equal(slider.value, "90");
+    assert.equal(slider.min, "60");
+    assert.equal(slider.max, "100");
+    assert.equal(textOf("#settings-panel-opacity-value"), "90%");
+
+    slider.value = "100";
+    slider.dispatchEvent(new Event("input", { bubbles: true }));
+    assert.equal(root.style.getPropertyValue("--panel-opacity"), "1");
+    assert.equal(textOf("#settings-panel-opacity-value"), "100%");
+    assert.equal(element("#settings-panel-opacity"), slider, "dragging must not re-render the sheet");
+    assert.notEqual(storedOpacity(), 100, "dragging alone does not write settings");
+
+    slider.dispatchEvent(new Event("change", { bubbles: true }));
+    await setImmediate();
+    assert.equal(storedOpacity(), 100);
+
+    document.body.innerHTML = '<div id="app"></div>';
+    new MenuMijiaWindowsApp(element("#app"));
+    assert.equal(element("#app").style.getPropertyValue("--panel-opacity"), "1");
+  });
+
+  it("clamps a stored value outside 60–100", () => {
+    localStorage.setItem("menumijia.windows.settings.v2", JSON.stringify({
+      connectionMode: "demo",
+      hasCompletedOnboarding: true,
+      panelOpacity: 12,
+    }));
+    new MenuMijiaWindowsApp(element("#app"));
+    assert.equal(element("#app").style.getPropertyValue("--panel-opacity"), "0.6");
+  });
+});
