@@ -116,15 +116,11 @@ export class ModelIntentResolver {
       return proactiveSuggestionsFromSystemOne(resp.body, devices, scenes);
     }
     const url = this.endpointURL("/chat/completions");
-    const resp = await this.transport({
+    const resp = await this.sendChatCompletion(
       url,
-      method: "POST",
       headers,
-      body: JSON.stringify(buildProactiveChatRequestBody(this.config.model, context, catalog)),
-    });
-    if (resp.status !== 200) {
-      throw new Error(this.friendlyHttpError(resp.status));
-    }
+      buildProactiveChatRequestBody(this.config.model, context, catalog),
+    );
     const root = JSON.parse(resp.body) as Record<string, unknown>;
     const choices = (root["choices"] as Array<Record<string, Record<string, unknown>>>) ?? [];
     let content = String(choices[0]?.["message"]?.["content"] ?? "");
@@ -316,26 +312,21 @@ export class ModelIntentResolver {
     const catalog = buildIntentCatalog(devices, scenes);
     const prompt = `你是智能家居指令解析器。把中文指令转为 JSON，只输出 JSON，不要解释。\n${catalog.text}\nschema: {"actions":[{"device":"id","op":"power|brightness|brightness_step|color_temp|effect|hvac_mode|temperature|temperature_step|fan_speed|oscillation|scene","value":...}],"reply":"一句话中文回执"}`;
 
-    const resp = await this.transport({
+    const resp = await this.sendChatCompletion(
       url,
-      method: "POST",
-      headers: {
+      {
         "Content-Type": "application/json",
         Authorization: `Bearer ${this.effectiveAPIKey()}`,
       },
-      body: JSON.stringify({
+      {
         model: this.config.model.trim(),
         messages: [
           { role: "system", content: prompt },
           { role: "user", content: utterance },
         ],
         temperature: 0,
-      }),
-    });
-
-    if (resp.status !== 200) {
-      throw new Error(this.friendlyHttpError(resp.status));
-    }
+      },
+    );
 
     const root = JSON.parse(resp.body) as Record<string, unknown>;
     const choices = (root["choices"] as Array<Record<string, Record<string, unknown>>>) ?? [];
@@ -410,6 +401,28 @@ export class ModelIntentResolver {
         return { kind: "activateScene" };
       default: return null;
     }
+  }
+
+  /**
+   * Sends an OpenAI-compatible chat request. Some models only accept their own fixed
+   * sampling temperature (e.g. Kimi Code rejects `temperature: 0`, #260), so a 400 whose
+   * body names `temperature` is retried once without that field. Mirrors macOS
+   * `sendChatCompletion`.
+   */
+  private async sendChatCompletion(
+    url: string,
+    headers: Record<string, string>,
+    body: Record<string, unknown>,
+  ) {
+    const resp = await this.transport({ url, method: "POST", headers, body: JSON.stringify(body) });
+    if (resp.status === 200) return resp;
+    if (resp.status === 400 && "temperature" in body && /temperature/i.test(resp.body.slice(0, 4096))) {
+      const { temperature: _dropped, ...withoutTemperature } = body;
+      const retry = await this.transport({ url, method: "POST", headers, body: JSON.stringify(withoutTemperature) });
+      if (retry.status === 200) return retry;
+      throw new Error(this.friendlyHttpError(retry.status));
+    }
+    throw new Error(this.friendlyHttpError(resp.status));
   }
 
   private friendlyHttpError(status: number): string {

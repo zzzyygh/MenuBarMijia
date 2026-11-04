@@ -409,6 +409,40 @@ struct AssistantTests {
         }
     }
 
+    @Test("Chat request retries once without temperature when the model rejects it (#260)")
+    func modelResolverRetriesWithoutTemperature() async throws {
+        let bodies = LockedBox<[[String: Any]]>([])
+        let kimi = ModelIntentResolver(
+            config: AssistantConfig(baseURL: "https://api.kimi.com/coding/v1", model: "kimi-for-coding-highspeed", apiKey: "sk-kimi"),
+            transport: { request in
+                let body = try JSONSerialization.jsonObject(with: request.httpBody ?? Data()) as? [String: Any] ?? [:]
+                bodies.mutate { $0.append(body) }
+                if body["temperature"] != nil {
+                    let err = Data(#"{"error":{"message":"invalid temperature: only 0.6 is allowed for this model"}}"#.utf8)
+                    return (err, HTTPURLResponse(url: request.url!, statusCode: 400, httpVersion: nil, headerFields: nil)!)
+                }
+                let ok = try JSONSerialization.data(withJSONObject: ["choices": [["message": ["content": #"{"actions":[],"reply":"ok"}"#]]]])
+                return (ok, HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!)
+            }
+        )
+        _ = try await kimi.resolve("打开书房吸顶灯", devices: Self.devices, scenes: Self.scenes)
+        let sent = bodies.value
+        #expect(sent.count == 2)
+        #expect(sent.first?["temperature"] != nil)
+        #expect(sent.last?["temperature"] == nil)
+
+        let calls = LockedBox(0)
+        let unrelated = ModelIntentResolver(config: AssistantConfig(model: "glm-5.1"), transport: { request in
+            calls.mutate { $0 += 1 }
+            let err = Data(#"{"error":{"message":"model not found"}}"#.utf8)
+            return (err, HTTPURLResponse(url: request.url!, statusCode: 400, httpVersion: nil, headerFields: nil)!)
+        })
+        await #expect(throws: AssistantError.httpStatus(400)) {
+            try await unrelated.resolve("x", devices: Self.devices, scenes: Self.scenes)
+        }
+        #expect(calls.value == 1)
+    }
+
     // MARK: - HomeStore integration
 
     @MainActor
@@ -807,4 +841,12 @@ struct AssistantTests {
             DeviceIntent(targetId: "dev_study_ceiling", operation: .lightEffect("Night"))
         ])
     }
+}
+
+private final class LockedBox<Value>: @unchecked Sendable {
+    private let lock = NSLock()
+    private var stored: Value
+    init(_ value: Value) { stored = value }
+    var value: Value { lock.withLock { stored } }
+    func mutate(_ body: (inout Value) -> Void) { lock.withLock { body(&stored) } }
 }

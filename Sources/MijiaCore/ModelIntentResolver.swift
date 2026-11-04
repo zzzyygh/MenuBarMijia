@@ -140,10 +140,7 @@ public struct ModelIntentResolver: Sendable, AssistantCommandResolving {
             )
         }
         let request = try makeRequest(utterance: utterance, catalog: catalog, context: context)
-        let (data, response) = try await transport(request)
-        if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
-            throw AssistantError.httpStatus(http.statusCode)
-        }
+        let data = try await sendChatCompletion(request)
         let content = try Self.messageContent(from: data)
         return try Self.plan(
             fromModelContent: content,
@@ -172,10 +169,7 @@ public struct ModelIntentResolver: Sendable, AssistantCommandResolving {
             return try Self.proactiveSuggestionsFromSystemOne(data: data, catalog: catalog, devices: devices, scenes: scenes)
         }
         let request = try makeProactiveChatRequest(catalog: catalog, context: context)
-        let (data, response) = try await transport(request)
-        if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
-            throw AssistantError.httpStatus(http.statusCode)
-        }
+        let data = try await sendChatCompletion(request)
         let content = try Self.messageContent(from: data)
         return try Self.proactiveSuggestionsFromChat(content: content, catalog: catalog, devices: devices, scenes: scenes)
     }
@@ -208,6 +202,42 @@ public struct ModelIntentResolver: Sendable, AssistantCommandResolving {
     }
 
     // MARK: - Request
+
+    /// Sends an OpenAI-compatible chat request. Some models only accept their own fixed
+    /// sampling temperature (e.g. Kimi Code rejects `temperature: 0`, #260), so a 400 whose
+    /// body names `temperature` is retried once without that field.
+    func sendChatCompletion(_ request: URLRequest) async throws -> Data {
+        let (data, response) = try await transport(request)
+        guard let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) else {
+            return data
+        }
+        guard http.statusCode == 400,
+              Self.errorBodyMentionsTemperature(data),
+              let retry = Self.removingTemperature(from: request) else {
+            throw AssistantError.httpStatus(http.statusCode)
+        }
+        let (retryData, retryResponse) = try await transport(retry)
+        if let retryHTTP = retryResponse as? HTTPURLResponse, !(200..<300).contains(retryHTTP.statusCode) {
+            throw AssistantError.httpStatus(retryHTTP.statusCode)
+        }
+        return retryData
+    }
+
+    static func errorBodyMentionsTemperature(_ data: Data) -> Bool {
+        String(decoding: data.prefix(4096), as: UTF8.self).lowercased().contains("temperature")
+    }
+
+    static func removingTemperature(from request: URLRequest) -> URLRequest? {
+        guard let body = request.httpBody,
+              var json = try? JSONSerialization.jsonObject(with: body) as? [String: Any],
+              json.removeValue(forKey: "temperature") != nil,
+              let stripped = try? JSONSerialization.data(withJSONObject: json) else {
+            return nil
+        }
+        var retry = request
+        retry.httpBody = stripped
+        return retry
+    }
 
     func makeRequest(
         utterance: String,

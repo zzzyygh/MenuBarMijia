@@ -1414,6 +1414,43 @@ describe("LocalIntentParser, DelayPhrase, UndoPhrase, and ModelIntentResolver", 
     assert.deepEqual(dsPlan.intents, [
       { targetId: "dev_ceiling", operation: { kind: "lightEffect", effect: "Night" } },
     ]);
+
+    // #260: Kimi Code rejects temperature 0 with a 400; retry once without the field.
+    const kimiBodies: Array<Record<string, unknown>> = [];
+    const kimiResolver = new ModelIntentResolver(
+      { baseURL: "https://api.kimi.com/coding/v1", model: "kimi-for-coding-highspeed", apiKey: "sk-kimi" },
+      async (req) => {
+        const body = JSON.parse(req.body ?? "{}") as Record<string, unknown>;
+        kimiBodies.push(body);
+        if ("temperature" in body) {
+          return { status: 400, headers: {}, body: '{"error":{"message":"invalid temperature: only 0.6 is allowed for this model"}}' };
+        }
+        return {
+          status: 200,
+          headers: {},
+          body: JSON.stringify({ choices: [{ message: { content: '{"actions":[{"device":"d1","op":"effect","value":"Night"}],"reply":"ok"}' } }] }),
+        };
+      }
+    );
+    const kimiPlan = await kimiResolver.resolve("书房月光", devices, []);
+    assert.deepEqual(kimiPlan.intents, [
+      { targetId: "dev_ceiling", operation: { kind: "lightEffect", effect: "Night" } },
+    ]);
+    assert.equal(kimiBodies.length, 2);
+    assert.equal(kimiBodies[0]?.["temperature"], 0);
+    assert.equal("temperature" in (kimiBodies[1] ?? {}), false);
+
+    // An unrelated 400 is surfaced without a retry.
+    let unrelatedCalls = 0;
+    const badRequest = new ModelIntentResolver(
+      { baseURL: "https://api.deepseek.com", model: "deepseek-chat", apiKey: "sk" },
+      async () => {
+        unrelatedCalls += 1;
+        return { status: 400, headers: {}, body: '{"error":{"message":"model not found"}}' };
+      }
+    );
+    await assert.rejects(badRequest.resolve("书房月光", devices, []), /HTTP 400/);
+    assert.equal(unrelatedCalls, 1);
   });
 
   it("matches the cross-platform golden JSON corpus shared with MijiaCoreTests", () => {
