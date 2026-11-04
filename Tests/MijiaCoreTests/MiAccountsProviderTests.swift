@@ -149,13 +149,20 @@ struct MiAccountsProviderTests {
             rooms: [],
             values: [MiotFixtures.key("de-light", 2, 1): .bool(false)]
         )
-        await deApi.setGetPropsHook { try? await Task.sleep(for: .milliseconds(400)) }
+        let (deGate, deCont) = AsyncStream<Void>.makeStream()
+        await deApi.setGetPropsHook {
+            var iterator = deGate.makeAsyncIterator()
+            _ = await iterator.next()
+        }
         let provider = Self.makeProvider([Self.cn, Self.de], cnAPI: cnApi, deAPI: deApi)
         let (log, task) = consume(provider)
         defer { task.cancel() }
         #expect(await log.wait { events in
             await events.snapshots.contains { !$0.isInitialLoadComplete }
         })
+        await deApi.setGetPropsHook(nil)
+        deCont.yield(())
+        deCont.finish()
         #expect(await log.wait { events in
             await events.snapshots.last?.isInitialLoadComplete == true
         })
