@@ -3,7 +3,7 @@
 ## 1.1.7
 
 ### 修复与设备支持
-- **macOS 长时间看摄像机不再因 Mach 端口耗尽闪退（[#97](https://github.com/jryang1997/MenuBarMijia/issues/97)）**：实时画面的时间轴从第一帧对齐主机时钟，并在之后一直沿用这一条。解码出的画面能按时间释放，不再每帧留下一个 IOSurface。渲染队列满时先丢掉积压，再从下一个关键帧继续。
+- **macOS 长时间看摄像机更稳定（[#97](https://github.com/jryang1997/MenuBarMijia/issues/97), [#271](https://github.com/jryang1997/MenuBarMijia/pull/271)）**：实时画面改用一条从第一帧对齐主机时钟的播放时间轴，解码出的画面按时间释放，降低长时间观看后因 Mach 端口耗尽闪退的风险；渲染队列满时先丢掉积压，再从下一个关键帧继续。实测米家摄像机 fMP4 实时画面加画中画连续播放约 14 分钟，端口数与内存保持平稳。若仍遇到闪退，请在 #97 附上崩溃报告。
 - **macOS 摄像机小窗可以关闭，并可选择画质（[#97](https://github.com/jryang1997/MenuBarMijia/issues/97), [#193](https://github.com/jryang1997/MenuBarMijia/pull/193)）**：关闭按钮与 Esc 立即收起小窗，并同时停止播放、画中画与本地 go2rtc 桥，不再残留黑块和暂停按钮；画中画窗口尺寸与时间范围修正。米家摄像机新增「自动 / 流畅 / 高清 / 超清」画质（默认高清），4K 摄像机不再固定为 480P；个别旧机型不支持超清时可切回高清或流畅。
 - **同时连着 HA 和米家时，摄像头卡片改用能出画面的那一路（[#97](https://github.com/jryang1997/MenuBarMijia/issues/97), [#266](https://github.com/jryang1997/MenuBarMijia/pull/266)）**：Home Assistant 的米家集成只给摄像头开关、没有画面，合并后的卡片却常常选了 HA 那一份，打开就是「未暴露视频流 (404)」。现在合并时优先能播放的一份：米家云端的摄像头都能通过本地 go2rtc 播放；HA 只有提供摄像头实体或快照时才算。手动指定的连接源仍然优先。
 - **只用 Home Assistant 时也能看摄像头（[#267](https://github.com/jryang1997/MenuBarMijia/pull/267)）**：HA 摄像头实体不支持 HLS 时，改用 HA 的 MJPEG 代理播放连续画面，不再是每秒一张的抓拍（与 Windows 一致）。米家摄像头在 HA 里没有画面时，窗口会说明原因，并在未登录米家时提供「登录米家观看」。
@@ -28,9 +28,11 @@
 - **领普平移推窗器（[#223](https://github.com/jryang1997/MenuBarMijia/issues/223)）**：macOS 小米云把 `window-opener` 显示成门窗卡片。点卡片在关上时打开、开着时关闭。打开会再确认一次，关闭直接执行。展开后可以拖开合百分比、暂停，并看到电量和故障。电机指令只用规格里的 Open、Close、Pause，不猜测数值。全关不会带动窗户。
 - **macOS 在官方规格下载失败时仍显示设备（[#185](https://github.com/jryang1997/MenuBarMijia/issues/185)）**：小米云拿不到已发布规格时，用与 Windows `fallbackSpecs.json` 逐字节相同的表猜一个只读规格。灯、空调、风扇这类还能出现在面板上，但开关和滑条不会发出写入。测试会拦住只改一边的情况。
 - **Windows 摄像机组件与画质（[#200](https://github.com/jryang1997/MenuBarMijia/issues/200), [#97](https://github.com/jryang1997/MenuBarMijia/issues/97)）**：安装包内置 `go2rtc` 与最小 LGPL FFmpeg，首次打开摄像机不再依赖 GitHub 下载；兜底下载改为 3 次重试、120 秒超时，并在失败时给出手动放置路径。实时小窗新增「自动 / 流畅 / 高清 / 超清」画质选择（默认高清），与 macOS 对齐。
+- **支持 Eztofa 智能重合闸通断器 L2（sanmei.valve.s1）只读监测（[#265](https://github.com/jryang1997/MenuBarMijia/issues/265)）**：以只读卡片显示通断状态与实时功率，不提供开关，任何入口都不会向总闸发出指令，也不计入全屋总功率。只读插座不再弹出「已开启超过 45 分钟」并附带关闭按钮的提醒。
 - **Windows 扫码登录超过 15 秒不再中断（[#256](https://github.com/jryang1997/MenuBarMijia/issues/256)）**：`reqwest` 0.12 的 `Display` 不再内联底层 `source()`，导致 15 秒长轮询超时只返回 `error sending request for url (...)` 而缺少 `"timed out"` 字样，前端误判为致命错误并在第 15 秒中断扫码。现在 `native_http` 会拼接完整错误原因链与超时标记，前端长轮询在二维码有效期内继续等待扫码确认。
 
 ### 体验
+- **Windows 面板不透明度可调（[#252](https://github.com/jryang1997/MenuBarMijia/issues/252)）**：设置 › 外观新增「面板不透明度」滑块（60%–100%，默认 90% 与原观感一致），壁纸透出导致文字看不清时调高，100% 为不透明。
 - **设备类型筛选行（macOS 与 Windows）**：房间胶囊下方新增「灯 / 空调 / …」类型胶囊，点「灯」即可跨房间查看所有灯；点「全部」、房间或切换家庭会清除筛选。
 - **Windows 可隐藏离线设备（[#187](https://github.com/jryang1997/MenuBarMijia/pull/187)）**：与 macOS 相同的「隐藏离线设备」开关，房间栏、空房间按钮与偏好设置共用，全关只作用于可见设备。
 - **Windows 米家灯组折叠（[#214](https://github.com/jryang1997/MenuBarMijia/issues/214)）**：与 macOS 一致，灯组内的单灯默认不重复显示，可在设置中关闭。
