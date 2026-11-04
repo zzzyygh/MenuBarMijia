@@ -22,9 +22,13 @@ Run `bash scripts/check.sh` for secret scan, mechanical lints, and `swift test`.
 
 CI 的快照比对以 CI 录制的结果为准。本机渲染漂移时，用 `bash scripts/snapshot-drift-check.sh` 判断是否**新增**了失配（输出为空即只有既有漂移）。漂移甄别回答不了「这次 UI 改动是否欠一批新基线」：改到 `Sources/MenuBarMijiaApp/` 就要按 `bash scripts/check_snapshot_baselines.sh` 的提示重录快照，CI 的 `snapshot-baselines` 工作流守这一条。`check.sh` 会跑完 Swift 与 Windows 两端再汇总失败。
 
+Windows 上没有 Swift 工具链：本机跑 `bash scripts/check.sh --lint-only`，Swift 测试交给 CI 或局域网 Mac（`bash scripts/remote-swift-test.sh --host <user>@<mac>`，一次配置见脚本头）。
+
 ### Tooling
 
 本仓库的 Swift 与 Rust 没有语言服务器：引用与定义检索用 `grep` 或 `xd://ast_grep`，不要反复尝试 `xd://lsp`。
+
+CI 失败先看 `bash scripts/ci_errors.sh <run-id>`（只打失败 job、错误与失败用例）；盘点未合并分支和工作树用 `bash scripts/pending-work.sh`。
 
 ### Commit & PR policy
 
@@ -45,19 +49,7 @@ CI 的快照比对以 CI 录制的结果为准。本机渲染漂移时，用 `ba
 
 ## Cursor Cloud specific instructions
 
-Cloud agents are Linux. `scripts/build_app.sh`, `scripts/install_local_app.sh`, and a repo-root `swift test` need the macOS SDK (CI uses macos-26). The Windows Tauri installer (`cargo test`, `npx tauri build`) stays on Windows CI.
-
-On Linux, `bash scripts/check.sh --skip-snapshots` (the pre-commit hook) runs `scripts/linux-check/run.sh` instead of `swift test`. That is the same MijiaCore suite as CI's `linux-core` job (Swift 6.1). It still runs the Windows frontend tests when `windows/node_modules` is present.
-
-Other Linux checks:
-
-- `bash scripts/check.sh --lint-only` — secret scan and mechanical lints only.
-- `bash scripts/test_nas_setup.sh` — NAS packaging safety. It stubs network commands; no NAS host is required.
-- `npm ci --prefix windows`, then `npm test --prefix windows` and `npm run build --prefix windows` — Windows frontend (Node 22). `npm run build` is not part of the pre-commit hook.
-
-`npm run dev --prefix windows` serves the tray UI at port 1420 (`strictPort`). The dev server is started on boot. First launch shows onboarding; “Preview the demo” / “先看演示预览” opens the offline demo home, and clicking a device card toggles it. Mi Cloud QR login and Home Assistant need a real account and are not part of this setup.
-
-Swift's clang selects the newest GCC. This image has GCC 14, so `libstdc++-14-dev` must be installed or `swift-crypto` fails with `cstdio` file not found. The environment install script installs Swift 6.1.3 and that package. No secrets are required for the checks above.
+Linux 云代理的构建、检查与端口约定见 `docs/agents/cursor-cloud.md`（在 Cursor Cloud 或 Linux 容器里工作时读）。
 
 ## Cursor skills
 
