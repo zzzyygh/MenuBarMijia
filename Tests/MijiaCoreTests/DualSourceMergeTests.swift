@@ -87,6 +87,107 @@ private func makeSpeaker(
 }
 
 struct DualSourceMergeTests {
+    @Test("A Mi cloud camera without an HLS service still wins over a Home Assistant copy with no stream")
+    func miCameraWithoutHLSServiceBeatsHomeAssistantWithoutStream() throws {
+        // Real chuangmi.camera.061a01 shape: both sources report power, night vision and motion,
+        // neither has a stream entity, and only the Mi copy can play (go2rtc Xiaomi bridge).
+        func camera(id: String, entity: String) -> SmartDevice {
+            SmartDevice(
+                id: id, name: "客厅", roomId: "living_room", roomName: "客厅",
+                model: "chuangmi.camera.061a01", isOnline: true,
+                kind: .camera(CameraSpec(
+                    entityId: entity, isOn: true,
+                    nightShot: "auto", availableNightShots: ["auto", "on", "off"],
+                    motionDetectionEntityId: entity + ".motion", isMotionDetectionOn: false
+                ))
+            )
+        }
+        let haCamera = camera(id: "e3a04e355433dbc67a27c82ea6c04d17", entity: "switch.chuangmi_cn_1105610385_061a01_on")
+        let miCamera = camera(id: "1105610385", entity: "miot:1105610385:2")
+        #expect(DeviceDeduplicator.capabilityScore(haCamera) == DeviceDeduplicator.capabilityScore(miCamera))
+
+        let result = DeviceDeduplicator.merge(
+            homeAssistant: makeHome(devices: [haCamera], identities: [haCamera.id: makeIdentity(
+                dids: DeviceIdentityNormalizer.didCandidates(from: ["xiaomi_home.chuangmi_cn_1105610385_061a01_on_p_2_1"]),
+                uniqueIds: ["xiaomi_home.chuangmi_cn_1105610385_061a01_on_p_2_1"],
+                model: haCamera.model, name: haCamera.name, roomName: haCamera.roomName, kind: .camera
+            )]),
+            xiaomiCloud: makeHome(devices: [miCamera], identities: [miCamera.id: makeIdentity(
+                dids: ["1105610385"], model: miCamera.model, name: miCamera.name, roomName: miCamera.roomName, kind: .camera
+            )])
+        )
+
+        #expect(result.home.devices.count == 1)
+        let device = try #require(result.home.devices.first)
+        #expect(result.routes[device.id]?.backend == .xiaomiCloud)
+        #expect(result.routes[device.id]?.sourceDeviceID == "1105610385")
+    }
+
+    @Test("A Home Assistant camera that exposes a stream keeps the normal tie-break")
+    func homeAssistantCameraWithStreamKeepsTieBreak() throws {
+        let haCamera = SmartDevice(
+            id: "ha-cam", name: "门口", roomId: "door", roomName: "门口", model: "chuangmi.camera.061a01", isOnline: true,
+            kind: .camera(CameraSpec(entityId: "switch.door_cam", isOn: true, streamEntityId: "camera.door"))
+        )
+        let miCamera = SmartDevice(
+            id: "555", name: "门口", roomId: "mi_door", roomName: "门口", model: "chuangmi.camera.061a01", isOnline: true,
+            kind: .camera(CameraSpec(entityId: "miot:555:2", isOn: true, streamEntityId: "miot:555:5"))
+        )
+        let result = DeviceDeduplicator.merge(
+            homeAssistant: makeHome(devices: [haCamera], identities: [haCamera.id: makeIdentity(
+                dids: ["555"], model: haCamera.model, name: haCamera.name, roomName: haCamera.roomName, kind: .camera
+            )]),
+            xiaomiCloud: makeHome(devices: [miCamera], identities: [miCamera.id: makeIdentity(
+                dids: ["555"], model: miCamera.model, name: miCamera.name, roomName: miCamera.roomName, kind: .camera
+            )])
+        )
+        let device = try #require(result.home.devices.first)
+        #expect(result.routes[device.id]?.backend == .homeAssistant)
+    }
+
+    @Test("A camera that can stream wins over a richer Home Assistant copy without a stream")
+    func cameraWithStreamBeatsHomeAssistantSwitchesOnly() throws {
+        // HA's Xiaomi integration: power, night vision and motion, but no camera.* entity.
+        let haCamera = SmartDevice(
+            id: "ha-living-camera", name: "客厅", roomId: "living_room", roomName: "客厅",
+            model: "chuangmi.camera.061a01", isOnline: true,
+            kind: .camera(CameraSpec(
+                entityId: "switch.living_camera_power", isOn: true,
+                nightShot: "auto", availableNightShots: ["auto", "on", "off"],
+                motionDetectionEntityId: "switch.living_camera_motion", isMotionDetectionOn: false
+            ))
+        )
+        let miCamera = SmartDevice(
+            id: "987654321", name: "客厅", roomId: "mi_living", roomName: "客厅",
+            model: "chuangmi.camera.061a01", isOnline: true,
+            kind: .camera(CameraSpec(entityId: "987654321.2.1", isOn: true, streamEntityId: "987654321.5"))
+        )
+        let haIdentity = makeIdentity(
+            dids: DeviceIdentityNormalizer.didCandidates(from: ["xiaomi_home_987654321"]),
+            uniqueIds: ["xiaomi_home_987654321"],
+            model: haCamera.model, name: haCamera.name, roomName: haCamera.roomName, kind: .camera
+        )
+        let miIdentity = makeIdentity(
+            dids: ["987654321"], model: miCamera.model, name: miCamera.name, roomName: miCamera.roomName, kind: .camera
+        )
+        #expect(DeviceDeduplicator.capabilityScore(haCamera) > DeviceDeduplicator.capabilityScore(miCamera))
+
+        let result = DeviceDeduplicator.merge(
+            homeAssistant: makeHome(devices: [haCamera], identities: [haCamera.id: haIdentity]),
+            xiaomiCloud: makeHome(devices: [miCamera], identities: [miCamera.id: miIdentity])
+        )
+
+        #expect(result.home.devices.count == 1)
+        let device = try #require(result.home.devices.first)
+        #expect(result.routes[device.id]?.backend == .xiaomiCloud)
+        #expect(result.routes[device.id]?.sourceDeviceID == "987654321")
+        guard case .camera(let spec) = device.kind else {
+            Issue.record("merged card is not a camera")
+            return
+        }
+        #expect(spec.streamEntityId == "987654321.5")
+    }
+
     @Test("A shared did pairs two sources into one card and routes to Home Assistant on a tie")
     func didPairingDedupesAndRoutesToHomeAssistant() throws {
         let haLight = makeLight(id: "ha-living-light", name: "客厅灯", roomId: "living_room", roomName: "客厅")

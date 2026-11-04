@@ -444,10 +444,25 @@ public enum DeviceDeduplicator {
         let ha = homeAssistant.device
         let mi = xiaomiCloud.device
         if ha.isOnline != mi.isOnline { return ha.isOnline ? homeAssistant : xiaomiCloud }
+        // A camera card exists to show video. Home Assistant's Xiaomi integration exposes the
+        // power, night-vision and motion switches but no stream, so it can out-score the Mi copy
+        // and leave the window stuck on "no live stream". Every Mi cloud camera can play live
+        // through the local go2rtc Xiaomi bridge, even without a google-home HLS service.
+        let haLive = hasLiveView(ha, backend: .homeAssistant)
+        let miLive = hasLiveView(mi, backend: .xiaomiCloud)
+        if haLive != miLive { return haLive ? homeAssistant : xiaomiCloud }
         let haScore = capabilityScore(ha)
         let miScore = capabilityScore(mi)
         if haScore != miScore { return haScore > miScore ? homeAssistant : xiaomiCloud }
         return homeAssistant
+    }
+
+    /// True for a camera this source can open a live view for; false for anything else.
+    /// Mi cloud cameras always can (go2rtc Xiaomi bridge); Home Assistant needs a stream or snapshot.
+    static func hasLiveView(_ device: SmartDevice, backend: HomeBackend) -> Bool {
+        guard case .camera(let spec) = device.kind else { return false }
+        if backend == .xiaomiCloud { return true }
+        return !(spec.streamEntityId ?? "").isEmpty || !(spec.snapshotPath ?? "").isEmpty
     }
 
     private static func mergedDevice(for card: Card) -> SmartDevice {
