@@ -1,8 +1,17 @@
 # 更新记录
 
-## 未发布
+## 1.1.7
 
 ### 修复与设备支持
+- **macOS 摄像机小窗可以关闭，并可选择画质（[#97](https://github.com/jryang1997/MenuBarMijia/issues/97), [#193](https://github.com/jryang1997/MenuBarMijia/pull/193)）**：关闭按钮与 Esc 立即收起小窗，并同时停止播放、画中画与本地 go2rtc 桥，不再残留黑块和暂停按钮；画中画窗口尺寸与时间范围修正。米家摄像机新增「自动 / 流畅 / 高清 / 超清」画质（默认高清），4K 摄像机不再固定为 480P；个别旧机型不支持超清时可切回高清或流畅。
+- **本地 go2rtc 桥加鉴权（[#192](https://github.com/jryang1997/MenuBarMijia/pull/192)）**：每次启动绑定随机回环端口并要求 Basic 认证（本机访问也一样），只复用本应用自己启动的进程，其他本机程序无法借它看摄像头。
+- **无法确认的设备规格保持只读（[#154](https://github.com/jryang1997/MenuBarMijia/issues/154), [#159](https://github.com/jryang1997/MenuBarMijia/pull/159)）**：灯、空调、风扇、新风、加湿器、摄像机、插座按型号猜出的规格不再声明可写，两端都隐藏这类设备实际做不到的控件，避免发出错误指令。
+- **「不支持的设备」扫描覆盖所有连接源**：设置里的不支持设备列表现在同时扫描每个在线的米家账号与 Home Assistant，便于把型号报给我们补适配。
+- **一个米家账号过期或配对 HA 时，其他连接源照常可用（[#229](https://github.com/jryang1997/MenuBarMijia/issues/229)）**。
+- **Windows 更新安装修复（[#151](https://github.com/jryang1997/MenuBarMijia/pull/151)）**：前端与 Rust 端的安装包字段名对齐，应用内更新不再报 `missing field downloadUrl`。
+- **更新清单与版本号绑定（[#198](https://github.com/jryang1997/MenuBarMijia/pull/198)）**：签名覆盖整份发布清单，旧版本的签名清单不能被拿来冒充新版本。
+- **Windows 离线冰箱兜底规格保持只读（[#148](https://github.com/jryang1997/MenuBarMijia/issues/148)）**。
+- **AI 指令兼容 Kimi Code 等固定采样温度的模型（[#260](https://github.com/jryang1997/MenuBarMijia/issues/260)）**：服务端因 `temperature` 参数返回 400 时，自动去掉该参数重试一次，「测试连接」与指令解析不再失败。
 - macOS 米家开关读回只在本轮确实返回电源或运行状态时确认成功，属性级失败不再沿用缓存确认。
 - macOS 切换连接后丢弃旧设备开关的确认与习惯记录，并释放旧读回等待状态。
 - macOS 登录响应合并多条 Cookie 时分别解析到期属性，保留 Expires 日期中的逗号。
@@ -18,6 +27,9 @@
 - **Windows 扫码登录超过 15 秒不再中断（[#256](https://github.com/jryang1997/MenuBarMijia/issues/256)）**：`reqwest` 0.12 的 `Display` 不再内联底层 `source()`，导致 15 秒长轮询超时只返回 `error sending request for url (...)` 而缺少 `"timed out"` 字样，前端误判为致命错误并在第 15 秒中断扫码。现在 `native_http` 会拼接完整错误原因链与超时标记，前端长轮询在二维码有效期内继续等待扫码确认。
 
 ### 体验
+- **设备类型筛选行（macOS 与 Windows）**：房间胶囊下方新增「灯 / 空调 / …」类型胶囊，点「灯」即可跨房间查看所有灯；点「全部」、房间或切换家庭会清除筛选。
+- **Windows 可隐藏离线设备（[#187](https://github.com/jryang1997/MenuBarMijia/pull/187)）**：与 macOS 相同的「隐藏离线设备」开关，房间栏、空房间按钮与偏好设置共用，全关只作用于可见设备。
+- **Windows 米家灯组折叠（[#214](https://github.com/jryang1997/MenuBarMijia/issues/214)）**：与 macOS 一致，灯组内的单灯默认不重复显示，可在设置中关闭。
 - **米家灯组折叠为一张卡片（[#189](https://github.com/jryang1997/MenuBarMijia/issues/189)）**：设备列表刷新时通过 `v2/groupv2/query_status` 缓存每个 `group.*` 灯组的成员（同时接受 `member_ship` / `membership` 两种拼写），面板把成员单灯折叠进灯组卡片，不再重复列出；灯组卡片被隐藏、离线或筛选掉时成员灯照常显示。偏好设置新增「灯组内的单灯不重复显示」（默认开启）。全关、场景、搜索与助手仍按包含成员的完整设备集合计算，折叠只影响可见列表。
 - **首次启动只教三件事，进阶功能默认收起（[#180](https://github.com/jryang1997/MenuBarMijia/issues/180)）**：新手引导改为「连接账号 → 按 ⌥M 搜一个设备 → 全关后撤销」三步，完成一步才打勾；AI 指令、GrokBall、摄像机、自动化与 URL 直控收进默认折叠的「进阶」，每行注明设置位置。连接成功后，剩余两课改为面板顶部的「上手清单」，搜索与全关撤销可以边操作边看说明；三步都试过或手动关闭后才消失。AI 的「把握度低于 80% 需确认」改为「不确定时先问我」开关（默认开启），具体阈值移到高级设置；建议胶囊的悬浮说明也改成「AI 不太确定，点一下才执行」。
 
