@@ -588,10 +588,11 @@ final class CameraPictureInPicture: NSObject {
         onStateChange?()
     }
 
-    /// AVKit keeps the pre-PiP sublayer transform when it moves the video container into PIPPanel.
-    /// Updating only `bounds` leaves `position` stale, so the layer's black background covers a
-    /// corner of the picture. Set the full frame, clear that background, and stop the host from
-    /// pinning the layer back to the small panel.
+    /// AVKit mirrors this display layer into PIPPanel through a `CALayerHost` and scales the video
+    /// with its own `sublayerTransform`, assuming the mirrored container is the PiP window's size.
+    /// So the display layer follows the PiP window, the host view stops pinning it back to the
+    /// hidden panel, and AVKit's own content view is made to follow the window too. AVKit's layers
+    /// and transforms are never changed: resetting them cropped the picture to one corner (#97).
     fileprivate func syncPictureInPictureLayerBounds() {
         guard isActive,
               let pipWindow = NSApp.windows.first(where: { String(describing: type(of: $0)).contains("PIP") }),
@@ -620,11 +621,39 @@ final class CameraPictureInPicture: NSObject {
         CATransaction.setDisableActions(true)
         fill(displayLayer, in: target)
         displayLayer.backgroundColor = nil
-        if let root = contentView.layer {
-            repairVideoLayers(root, in: target)
-        }
-        repairVideoLayers(displayLayer, in: target)
         CATransaction.commit()
+        Self.trackWindowSize(in: contentView)
+    }
+
+    /// AVKit sizes its PiP content view once, at the starting window size, and leaves it there.
+    /// Only the view's frame is changed; AVKit still lays out and scales everything inside it.
+    static func trackWindowSize(in contentView: NSView) {
+        for view in contentView.subviews
+        where String(describing: type(of: view)).hasPrefix("AVPictureInPicture") {
+            view.autoresizingMask = [.width, .height]
+            if view.frame != contentView.bounds {
+                view.frame = contentView.bounds
+                view.needsLayout = true
+            }
+            keepParkedHostViewsOffscreen(in: view)
+        }
+    }
+
+    /// AVKit parks an opaque black `AVPictureInPictureCALayerHostView` 10 pt past the top of the
+    /// starting window and never moves it, so it slides into view once the window grows. Keep a
+    /// parked one (origin above zero) just past the current top edge; one AVKit shows at zero is
+    /// left alone.
+    static func keepParkedHostViewsOffscreen(in root: NSView) {
+        for view in root.subviews {
+            if String(describing: type(of: view)) == "AVPictureInPictureCALayerHostView",
+               view.frame.minY > 0 {
+                let parkedY = root.bounds.height + 10
+                if view.frame.minY != parkedY {
+                    view.setFrameOrigin(NSPoint(x: view.frame.minX, y: parkedY))
+                }
+            }
+            keepParkedHostViewsOffscreen(in: view)
+        }
     }
 
     fileprivate func restoreHostLayerBounds() {
@@ -651,16 +680,6 @@ final class CameraPictureInPicture: NSObject {
         layer.anchorPoint = CGPoint(x: 0.5, y: 0.5)
         layer.bounds = bounds
         layer.position = CGPoint(x: bounds.midX, y: bounds.midY)
-    }
-
-    private func repairVideoLayers(_ layer: CALayer, in bounds: CGRect) {
-        let name = String(describing: type(of: layer))
-        if name.contains("VideoContainer") || name.contains("SampleBufferDisplay") {
-            layer.sublayerTransform = CATransform3DIdentity
-            layer.backgroundColor = nil
-            fill(layer, in: bounds)
-        }
-        layer.sublayers?.forEach { repairVideoLayers($0, in: bounds) }
     }
 
     private nonisolated func onMain(_ work: @MainActor @escaping () -> Void) {
