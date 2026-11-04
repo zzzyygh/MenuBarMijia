@@ -11,8 +11,8 @@ import SwiftUI
 /// Plays go2rtc's progressive fragmented MP4 (`/api/stream.mp4`) with hardware decoding.
 ///
 /// Network chunks are demuxed on a private serial queue and every coded frame is enqueued
-/// into an `AVSampleBufferDisplayLayer` marked display-immediately, so the picture follows
-/// the camera in real time without FFmpeg transcoding, JPEG decoding or SwiftUI re-renders.
+/// into an `AVSampleBufferDisplayLayer` whose timebase follows the stream, so the picture
+/// stays live without FFmpeg transcoding, JPEG decoding or SwiftUI re-renders.
 final class CameraLiveVideoPlayer: NSObject, URLSessionDataDelegate, @unchecked Sendable {
     struct Outcome: Sendable {
         var framesDecoded: Int
@@ -36,6 +36,7 @@ final class CameraLiveVideoPlayer: NSObject, URLSessionDataDelegate, @unchecked 
     private let logger = Logger(subsystem: "com.jryang1997.MenuBarMijia", category: "CameraLiveVideo")
     private let queue = DispatchQueue(label: "com.jryang1997.MenuBarMijia.camera-fmp4", qos: .userInteractive)
     private let delegateQueue: OperationQueue
+    private var liveTimebase: CMTimebase?
 
     // Everything below is only touched on `queue`.
     private var activeToken: PlayToken?
@@ -51,6 +52,7 @@ final class CameraLiveVideoPlayer: NSObject, URLSessionDataDelegate, @unchecked 
     private var statsWindowStart = Date()
     private var statsWindowFrames = 0
     private var playbackPaused = false
+    private var playbackClock = CameraLivePlaybackClock()
 
     @MainActor
     override init() {
@@ -63,6 +65,23 @@ final class CameraLiveVideoPlayer: NSObject, URLSessionDataDelegate, @unchecked 
         delegateQueue.maxConcurrentOperationCount = 1
         super.init()
         delegateQueue.underlyingQueue = queue
+        installLiveTimebase()
+    }
+
+    @MainActor
+    private func installLiveTimebase() {
+        var timebase: CMTimebase?
+        guard CMTimebaseCreateWithSourceClock(
+            allocator: kCFAllocatorDefault,
+            sourceClock: CMClockGetHostTimeClock(),
+            timebaseOut: &timebase
+        ) == noErr, let timebase else {
+            logger.error("camera playback timebase was not created; decoded frames may accumulate")
+            return
+        }
+        CMTimebaseSetRate(timebase, rate: 0)
+        liveTimebase = timebase
+        displayLayer.controlTimebase = timebase
     }
 
     /// Streams one HTTP connection until it ends, fails, or the calling task is cancelled.
@@ -120,6 +139,10 @@ final class CameraLiveVideoPlayer: NSObject, URLSessionDataDelegate, @unchecked 
         failure = nil
         statsWindowStart = Date()
         statsWindowFrames = 0
+        playbackClock.reset()
+        if let liveTimebase {
+            CMTimebaseSetRate(liveTimebase, rate: 0)
+        }
         renderer.flush()
 
         let cfg = URLSessionConfiguration.ephemeral
@@ -213,7 +236,7 @@ final class CameraLiveVideoPlayer: NSObject, URLSessionDataDelegate, @unchecked 
         guard let formatDescription else { return }
         if playbackPaused { return }
 
-        if !displayLayer.isReadyForMoreMediaData {
+        if !renderer.isReadyForMoreMediaData {
             renderer.flush()
             waitingForKeyframe = true
             guard isKeyframe else { return }
@@ -230,14 +253,23 @@ final class CameraLiveVideoPlayer: NSObject, URLSessionDataDelegate, @unchecked 
 
         // Parameter sets travel in the format description; the frame keeps only slice/SEI units.
         let payloadUnits = units.filter { !Self.isParameterSet($0, codec: track.codec) }
-        guard !payloadUnits.isEmpty,
-              let sampleBuffer = Self.makeSampleBuffer(
-                  units: payloadUnits,
-                  format: formatDescription,
-                  sample: sample,
-                  timescale: track.timescale,
-                  isKeyframe: isKeyframe
-              ) else { return }
+        guard !payloadUnits.isEmpty else { return }
+        let scale = CMTimeScale(clamping: track.timescale == 0 ? 90_000 : track.timescale)
+        let dts = CMTime(value: CMTimeValue(clamping: sample.decodeTime), timescale: scale)
+        let mediaPTS = CMTimeAdd(dts, CMTime(value: CMTimeValue(sample.compositionOffset), timescale: scale))
+        let mediaSeconds = CMTimeGetSeconds(mediaPTS)
+        let hostNow = CMTimeGetSeconds(CMClockGetTime(CMClockGetHostTimeClock()))
+        if liveTimebase != nil, mediaSeconds.isFinite, hostNow.isFinite {
+            alignPlaybackClock(mediaSeconds: mediaSeconds, hostNowSeconds: hostNow)
+        }
+        guard let sampleBuffer = Self.makeSampleBuffer(
+            units: payloadUnits,
+            format: formatDescription,
+            sample: sample,
+            timescale: track.timescale,
+            isKeyframe: isKeyframe,
+            displayImmediately: liveTimebase == nil
+        ) else { return }
 
         renderer.enqueue(sampleBuffer)
         framesDecoded += 1
@@ -251,6 +283,19 @@ final class CameraLiveVideoPlayer: NSObject, URLSessionDataDelegate, @unchecked 
             logger.info("camera fMP4 \(String(format: "%.1f", fps), privacy: .public) fps over \(String(format: "%.1f", elapsed), privacy: .public)s (total \(self.framesDecoded))")
             statsWindowStart = Date()
             statsWindowFrames = 0
+        }
+    }
+
+    private func alignPlaybackClock(mediaSeconds: Double, hostNowSeconds: Double) {
+        guard let liveTimebase else { return }
+        switch playbackClock.step(mediaSeconds: mediaSeconds, hostNowSeconds: hostNowSeconds) {
+        case .start(let origin), .reanchor(let origin):
+            let time = CMTime(seconds: origin, preferredTimescale: 90_000)
+            CMTimebaseSetRate(liveTimebase, rate: 0)
+            CMTimebaseSetTime(liveTimebase, time: time)
+            CMTimebaseSetRate(liveTimebase, rate: 1)
+        case .follow:
+            break
         }
     }
 
@@ -333,7 +378,8 @@ final class CameraLiveVideoPlayer: NSObject, URLSessionDataDelegate, @unchecked 
         format: CMVideoFormatDescription,
         sample: FMP4Sample,
         timescale: UInt32,
-        isKeyframe: Bool
+        isKeyframe: Bool,
+        displayImmediately: Bool = false
     ) -> CMSampleBuffer? {
         var payload = Data(capacity: units.reduce(0) { $0 + $1.count + 4 })
         for unit in units {
@@ -386,14 +432,19 @@ final class CameraLiveVideoPlayer: NSObject, URLSessionDataDelegate, @unchecked 
             sampleBufferOut: &sampleBuffer
         ) == noErr, let sampleBuffer else { return nil }
 
-        if let attachments = CMSampleBufferGetSampleAttachmentsArray(sampleBuffer, createIfNecessary: true),
+        if displayImmediately || !isKeyframe,
+           let attachments = CMSampleBufferGetSampleAttachmentsArray(sampleBuffer, createIfNecessary: true),
            CFArrayGetCount(attachments) > 0 {
-            let dict = unsafeBitCast(CFArrayGetValueAtIndex(attachments, 0), to: CFMutableDictionary.self)
-            CFDictionarySetValue(
-                dict,
-                Unmanaged.passUnretained(kCMSampleAttachmentKey_DisplayImmediately).toOpaque(),
-                Unmanaged.passUnretained(kCFBooleanTrue).toOpaque()
-            )
+            let dict = Unmanaged<CFMutableDictionary>.fromOpaque(
+                CFArrayGetValueAtIndex(attachments, 0)
+            ).takeUnretainedValue()
+            if displayImmediately {
+                CFDictionarySetValue(
+                    dict,
+                    Unmanaged.passUnretained(kCMSampleAttachmentKey_DisplayImmediately).toOpaque(),
+                    Unmanaged.passUnretained(kCFBooleanTrue).toOpaque()
+                )
+            }
             if !isKeyframe {
                 CFDictionarySetValue(
                     dict,

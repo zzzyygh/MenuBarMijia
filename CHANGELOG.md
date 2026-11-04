@@ -3,6 +3,7 @@
 ## 1.1.7
 
 ### 修复与设备支持
+- **macOS 长时间看摄像机不再因 Mach 端口耗尽闪退（[#97](https://github.com/jryang1997/MenuBarMijia/issues/97)）**：实时画面的时间轴从第一帧对齐主机时钟，并在之后一直沿用这一条。解码出的画面能按时间释放，不再每帧留下一个 IOSurface。渲染队列满时先丢掉积压，再从下一个关键帧继续。
 - **macOS 摄像机小窗可以关闭，并可选择画质（[#97](https://github.com/jryang1997/MenuBarMijia/issues/97), [#193](https://github.com/jryang1997/MenuBarMijia/pull/193)）**：关闭按钮与 Esc 立即收起小窗，并同时停止播放、画中画与本地 go2rtc 桥，不再残留黑块和暂停按钮；画中画窗口尺寸与时间范围修正。米家摄像机新增「自动 / 流畅 / 高清 / 超清」画质（默认高清），4K 摄像机不再固定为 480P；个别旧机型不支持超清时可切回高清或流畅。
 - **同时连着 HA 和米家时，摄像头卡片改用能出画面的那一路（[#97](https://github.com/jryang1997/MenuBarMijia/issues/97), [#266](https://github.com/jryang1997/MenuBarMijia/pull/266)）**：Home Assistant 的米家集成只给摄像头开关、没有画面，合并后的卡片却常常选了 HA 那一份，打开就是「未暴露视频流 (404)」。现在合并时优先能播放的一份：米家云端的摄像头都能通过本地 go2rtc 播放；HA 只有提供摄像头实体或快照时才算。手动指定的连接源仍然优先。
 - **只用 Home Assistant 时也能看摄像头（[#267](https://github.com/jryang1997/MenuBarMijia/pull/267)）**：HA 摄像头实体不支持 HLS 时，改用 HA 的 MJPEG 代理播放连续画面，不再是每秒一张的抓拍（与 Windows 一致）。米家摄像头在 HA 里没有画面时，窗口会说明原因，并在未登录米家时提供「登录米家观看」。
