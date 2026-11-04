@@ -39,6 +39,7 @@ import {
   MiotCommandMapper,
   MiotSpecResolver,
   MiotSynthesizer,
+  isMainsBreaker,
   inferFallbackSpec,
   maskedMiUserId,
   miApiBaseURL,
@@ -3915,5 +3916,31 @@ describe("device readout", () => {
     assert.equal(readMiotPower(0), false);
     assert.equal(readMiotPower(2), null);
     assert.equal(readMiotPower("1"), null);
+  });
+});
+
+describe("Mains breaker (#265)", () => {
+  const corpus = JSON.parse(readFileSync(resolve(process.cwd(), "../Tests/Fixtures/miot_golden.json"), "utf8")) as {
+    specs: Record<string, unknown>;
+  };
+  const breaker = parseMiotDeviceSpec(corpus.specs["sanmei.valve.s1"]);
+  const water = parseMiotDeviceSpec(corpus.specs["golden.valve.water"]);
+
+  it("only a power-metering valve counts as a breaker", () => {
+    assert.ok(breaker && water);
+    assert.equal(isMainsBreaker(breaker), true);
+    assert.equal(isMainsBreaker(water), false);
+    assert.equal(MiotSynthesizer.buildDeviceKind("w", water, new Map()), null);
+  });
+
+  it("refuses every write, even where the spec says writable", () => {
+    assert.ok(breaker);
+    for (const command of [
+      { kind: "setSwitch", entityId: "miot:b:2", isOn: false },
+      { kind: "setSwitch", entityId: "miot:b:2", isOn: true },
+      { kind: "setSwitch", entityId: "miot:b:5", isOn: true },
+    ] as const) {
+      assert.throws(() => MiotCommandMapper.map(command, breaker), /electronic-valve/);
+    }
   });
 });

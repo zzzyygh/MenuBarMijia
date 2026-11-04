@@ -70,6 +70,8 @@ export interface PlugSpec {
   readonly childLockEntityId: string | null;
   isChildLocked: boolean;
   readonly powerWritable?: boolean;
+  /** False for a mains breaker (#265): it meters the downstream plugs, so the total would double count. */
+  readonly countsInTotalPower?: boolean;
 }
 
 export interface FridgeSpec {

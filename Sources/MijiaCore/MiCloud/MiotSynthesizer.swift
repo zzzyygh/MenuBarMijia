@@ -53,6 +53,7 @@ public enum MiotSynthesizer {
         ("video-doorbell", buildCamera),
         ("outlet", buildPlug),
         ("switch", buildPlug),
+        ("electronic-valve", buildBreaker),
         ("kettle", buildAppliance),
         ("ble-kettle", buildAppliance),
         ("water-dispenser", buildAppliance),
@@ -188,6 +189,7 @@ public enum MiotSynthesizer {
         }
         for serviceName in preferredServices {
             if let entry = registry.first(where: { $0.service == serviceName }),
+               claims(entry.service, spec: spec),
                let service = spec.services(named: entry.service).first {
                 return (service, entry.build)
             }
@@ -200,6 +202,7 @@ public enum MiotSynthesizer {
                deviceType != "light", !deviceType.contains("light"), !deviceType.contains("lamp") {
                 continue
             }
+            guard claims(entry.service, spec: spec) else { continue }
             if let service = spec.services(named: entry.service).first {
                 return (service, entry.build)
             }
@@ -211,6 +214,18 @@ public enum MiotSynthesizer {
             return (env, buildSensor)
         }
         return nil
+    }
+
+    /// An `electronic-valve` is only a mains breaker when it meters electric power (#265). A water
+    /// or gas shut-off valve uses the same service and stays unsupported rather than becoming a plug.
+    static func claims(_ serviceName: String, spec: MiotDeviceSpec) -> Bool {
+        guard serviceName == "electronic-valve" else { return true }
+        return isMainsBreaker(spec)
+    }
+
+    public static func isMainsBreaker(_ spec: MiotDeviceSpec) -> Bool {
+        !spec.services(named: "electronic-valve").isEmpty
+            && spec.services(named: "power-consumption").contains { $0.property(named: "electric-power") != nil }
     }
 
     // MARK: Builders
@@ -424,6 +439,19 @@ public enum MiotSynthesizer {
             isChildLocked: lock?.value?.miotBool ?? false,
             powerWritable: on?.property.isWritable == true
         ))
+    }
+
+    /// A mains breaker / recloser (e.g. `sanmei.valve.s1`, #265) is a read-only meter: switching it
+    /// cuts power to the whole circuit, so the card never offers a toggle and the command mapper
+    /// refuses every write. Its power covers the downstream plugs, so it stays out of the home total.
+    static func buildBreaker(_ r: MiotReader, _ s: MiotService) -> DeviceKind {
+        let kind = buildPlug(r, s)
+        guard case .plug(var spec) = kind else { return kind }
+        spec.childLockEntityId = nil
+        spec.isChildLocked = false
+        spec.powerWritable = false
+        spec.countsInTotalPower = false
+        return .plug(spec)
     }
 
     static func buildVacuum(_ r: MiotReader, _ s: MiotService) -> DeviceKind {

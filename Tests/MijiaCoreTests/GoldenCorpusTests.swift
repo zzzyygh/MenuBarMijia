@@ -102,6 +102,7 @@ struct GoldenCorpusTests {
             let childLockEntityId: String?
             let isChildLocked: Bool
             let powerWritable: Bool?
+            let countsInTotalPower: Bool?
         }
 
         struct FridgePayload: Decodable {
@@ -240,7 +241,8 @@ struct GoldenCorpusTests {
                         energyKwh: p.energyKwh,
                         childLockEntityId: p.childLockEntityId,
                         isChildLocked: p.isChildLocked,
-                        powerWritable: p.powerWritable ?? true
+                        powerWritable: p.powerWritable ?? true,
+                        countsInTotalPower: p.countsInTotalPower ?? true
                     )
                 )
             case .fridge(let p):

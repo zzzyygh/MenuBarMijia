@@ -116,7 +116,10 @@ extension HomeStore {
                 let elapsed = now.timeIntervalSince(startedAt)
 
                 switch dev.kind {
-                case .plug(let s) where elapsed >= 45 * 60
+                // A read-only plug (unverified spec, mains breaker #265) gets no reminder: its
+                // notification button would send the very switch command the card refuses.
+                case .plug(let s) where s.powerWritable
+                    && elapsed >= 45 * 60
                     && (s.powerWatts ?? 0) > Self.longRunningPlugMinimumWatts
                     && !longRunAlertedForSession.contains(dev.id):
                     longRunAlertedForSession.insert(dev.id)

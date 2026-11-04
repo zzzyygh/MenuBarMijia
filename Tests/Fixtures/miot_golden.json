@@ -1472,6 +1472,47 @@
           ]
         }
       ]
+    },
+    "sanmei.valve.s1": {
+      "type": "urn:miot-spec-v2:device:electronic-valve:0000A0A7:sanmei-s1:1",
+      "services": [
+        {
+          "iid": 2,
+          "type": "urn:miot-spec-v2:service:electronic-valve:00007835:sanmei-s1:1",
+          "properties": [
+            { "iid": 1, "type": "urn:miot-spec-v2:property:valve-switch:000000DA:sanmei-s1:1", "format": "bool", "access": ["read", "write", "notify"] },
+            { "iid": 3, "type": "urn:miot-spec-v2:property:on:00000006:sanmei-s1:1", "format": "bool", "access": ["read", "write", "notify"] },
+            { "iid": 5, "type": "urn:miot-spec-v2:property:fault:00000009:sanmei-s1:1", "format": "uint8", "access": ["read", "notify"], "value-list": [{ "value": 0, "description": "No Faults" }, { "value": 6, "description": "LD" }] }
+          ]
+        },
+        {
+          "iid": 3,
+          "type": "urn:miot-spec-v2:service:power-consumption:0000780E:sanmei-s1:1",
+          "properties": [
+            { "iid": 1, "type": "urn:miot-spec-v2:property:power-consumption:0000002F:sanmei-s1:1", "format": "uint32", "access": ["read", "notify"], "value-range": [0, 99999999, 1] },
+            { "iid": 6, "type": "urn:miot-spec-v2:property:electric-power:00000066:sanmei-s1:1", "format": "int32", "access": ["read", "notify"], "unit": "watt", "value-range": [0, 16777216, 1] }
+          ]
+        },
+        {
+          "iid": 5,
+          "type": "urn:miot-spec-v2:service:custom:00007830:sanmei-s1:1",
+          "properties": [
+            { "iid": 2, "type": "urn:miot-spec-v2:property:child-lock:00000001:sanmei-s1:1", "format": "bool", "access": ["read", "notify", "write"] }
+          ]
+        }
+      ]
+    },
+    "golden.valve.water": {
+      "type": "urn:miot-spec-v2:device:electronic-valve:0000A0A7:golden-water:1",
+      "services": [
+        {
+          "iid": 2,
+          "type": "urn:miot-spec-v2:service:electronic-valve:00007835:golden-water:1",
+          "properties": [
+            { "iid": 1, "type": "urn:miot-spec-v2:property:on:00000006:golden-water:1", "format": "bool", "access": ["read", "write", "notify"] }
+          ]
+        }
+      ]
     }
   },
   "fallbackSpecs":   [
@@ -2803,6 +2844,18 @@
       "model": "loock.lock.battery",
       "name": "卧室门锁",
       "isOnline": true
+    },
+    {
+      "did": "did_breaker",
+      "model": "sanmei.valve.s1",
+      "name": "总闸",
+      "isOnline": true
+    },
+    {
+      "did": "did_water_valve",
+      "model": "golden.valve.water",
+      "name": "进水阀",
+      "isOnline": true
     }
   ],
   "rooms": [
@@ -3006,7 +3059,12 @@
     },
     { "did": "did_lock_state", "siid": 2, "piid": 1, "value": 1 },
     { "did": "did_lock_state", "siid": 3, "piid": 1, "value": 80 },
-    { "did": "did_lock_battery", "siid": 3, "piid": 1, "value": 40 }
+    { "did": "did_lock_battery", "siid": 3, "piid": 1, "value": 40 },
+    { "did": "did_breaker", "siid": 2, "piid": 3, "value": true },
+    { "did": "did_breaker", "siid": 3, "piid": 1, "value": 123456 },
+    { "did": "did_breaker", "siid": 3, "piid": 6, "value": 1830 },
+    { "did": "did_breaker", "siid": 5, "piid": 2, "value": true },
+    { "did": "did_water_valve", "siid": 2, "piid": 1, "value": true }
   ],
   "expectedKinds": {
     "did_light": {
@@ -3252,6 +3310,16 @@
       "humidity": null,
       "battery": 40,
       "statusText": "锁状态未知"
+    },
+    "did_breaker": {
+      "kind": "plug",
+      "switchEntityId": "miot:did_breaker:2",
+      "isOn": true,
+      "powerWatts": 1830,
+      "childLockEntityId": null,
+      "isChildLocked": false,
+      "powerWritable": false,
+      "countsInTotalPower": false
     }
   },
   "expectedEnvironmentReadings": [
@@ -3503,7 +3571,12 @@
     ],
     "did_lock_battery": [
       { "did": "did_lock_battery", "siid": 3, "piid": 1 }
-    ]
+    ],
+    "did_breaker": [
+      { "did": "did_breaker", "siid": 2, "piid": 3 },
+      { "did": "did_breaker", "siid": 3, "piid": 6 }
+    ],
+    "did_water_valve": []
   },
   "commandCases": [
     {

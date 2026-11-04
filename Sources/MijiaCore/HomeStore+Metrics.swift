@@ -14,7 +14,7 @@ extension HomeStore {
 
     public var totalPowerWatts: Double {
         devices.reduce(0.0) { acc, dev in
-            guard dev.isOnline, case .plug(let s) = dev.kind, s.isOn else { return acc }
+            guard dev.isOnline, case .plug(let s) = dev.kind, s.isOn, s.countsInTotalPower else { return acc }
             return acc + (s.powerWatts ?? 0)
         }
     }

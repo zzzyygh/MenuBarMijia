@@ -28,6 +28,11 @@ public enum MiotCommandError: LocalizedError, Equatable, Sendable {
 /// resolved by property/action short names inside the addressed service.
 public enum MiotCommandMapper {
     public static func map(_ command: DeviceCommand, spec: MiotDeviceSpec) throws -> MiotWrite {
+        // A mains breaker is read-only whatever the spec allows: one write can black out the home,
+        // so no path (card, assistant, alert action, URL, scene) may reach it (#265).
+        if MiotSynthesizer.isMainsBreaker(spec) {
+            throw MiotCommandError.unsupported("electronic-valve")
+        }
         let entityId = command.targetEntityId
         if let address = MiotAddress.parseAction(entityId) {
             guard let service = spec.service(iid: address.siid),

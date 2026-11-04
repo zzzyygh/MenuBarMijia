@@ -36,6 +36,21 @@ export interface MiotDeviceSpec {
   readonly services: readonly MiotService[];
 }
 
+/**
+ * An `electronic-valve` is a mains breaker only when it meters electric power (#265). A water or
+ * gas shut-off valve shares the service and stays unsupported. Mirrors `MiotSynthesizer.isMainsBreaker`.
+ */
+export function isMainsBreaker(spec: MiotDeviceSpec): boolean {
+  return (
+    spec.services.some((s) => miotShortName(s.type) === "electronic-valve") &&
+    spec.services.some(
+      (s) =>
+        miotShortName(s.type) === "power-consumption" &&
+        s.properties.some((p) => miotShortName(p.type) === "electric-power"),
+    )
+  );
+}
+
 export function miotShortName(urn: string): string {
   const parts = urn.split(":");
   return parts[3] ?? urn;

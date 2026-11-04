@@ -18,6 +18,7 @@ import {
 import {
   hvacModeFromDescription,
   inferFallbackSpec,
+  isMainsBreaker,
   makeMiotAddress,
   miotShortName,
   type MiotDeviceSpec,
@@ -312,6 +313,7 @@ export const MiotSynthesizer = {
       "camera-control",
       "outlet",
       "switch",
+      "electronic-valve",
       "kettle",
       "ble-kettle",
       "water-dispenser",
@@ -338,9 +340,11 @@ export const MiotSynthesizer = {
           : devShort === "kettle" || devShort === "ble-kettle"
             ? ["kettle", "ble-kettle", "water-dispenser"]
             : [devShort];
+    // A shut-off valve without a power meter is not a breaker and stays unsupported (#265).
+    const claims = (short: string) => short !== "electronic-valve" || isMainsBreaker(spec);
     let primaryService: MiotService | undefined = spec.services.find((s) => {
       const sShort = miotShortName(s.type);
-      return preferredServices.includes(sShort) && priority.includes(sShort);
+      return preferredServices.includes(sShort) && priority.includes(sShort) && claims(sShort);
     });
     if (!primaryService) {
       for (const p of priority) {
@@ -350,6 +354,7 @@ export const MiotSynthesizer = {
         if (p === "light" && devShort !== "light" && !devShort.includes("light") && !devShort.includes("lamp")) {
           continue;
         }
+        if (!claims(p)) continue;
         const found = spec.services.find((s) => miotShortName(s.type) === p);
         if (found) {
           primaryService = found;
@@ -972,16 +977,20 @@ export const MiotSynthesizer = {
       const lockSvc = spec.services.find((s) => miotShortName(s.type) === "physical-controls-locked");
       const lock = lockSvc ? readProp(lockSvc, "physical-controls-locked") : null;
 
-      const onWritable = exposesWrite(on?.prop.access);
+      // A mains breaker (#265) is a read-only meter: one write could black out the home, and its
+      // power already covers the downstream plugs, so it stays out of the home total.
+      const isBreaker = sName === "electronic-valve";
+      const onWritable = !isBreaker && exposesWrite(on?.prop.access);
       return {
         kind: "plug",
         switchEntityId: makeMiotAddress(did, primaryService.iid),
         isOn: miotBool(on?.val) ?? false,
         powerWatts: Number.isFinite(watts) ? watts : null,
         ...(energyKwh !== null ? { energyKwh } : {}),
-        childLockEntityId: lock ? makeMiotAddress(did, lock.service.iid) : null,
-        isChildLocked: miotBool(lock?.val) ?? false,
+        childLockEntityId: lock && !isBreaker ? makeMiotAddress(did, lock.service.iid) : null,
+        isChildLocked: isBreaker ? false : miotBool(lock?.val) ?? false,
         ...readOnlyFlags({ powerWritable: onWritable }),
+        ...(isBreaker ? { countsInTotalPower: false } : {}),
       };
     }
 

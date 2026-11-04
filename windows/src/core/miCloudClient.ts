@@ -31,6 +31,7 @@ export {
   parseMiotDeviceSpec,
   parseMiotInstanceIndex,
   inferFallbackSpec,
+  isMainsBreaker,
   MiotSpecResolver,
 } from "./miCloud/spec.js";
 export type {

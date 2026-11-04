@@ -190,6 +190,9 @@ public struct PlugSpec: Equatable, Sendable {
     public var childLockEntityId: String?
     public var isChildLocked: Bool
     public var powerWritable: Bool
+    /// False for a mains breaker (#265): it meters everything downstream, so adding it to the
+    /// home total would count the other plugs twice.
+    public var countsInTotalPower: Bool
 
     public init(
         switchEntityId: String,
@@ -198,7 +201,8 @@ public struct PlugSpec: Equatable, Sendable {
         energyKwh: Double? = nil,
         childLockEntityId: String? = nil,
         isChildLocked: Bool = false,
-        powerWritable: Bool = true
+        powerWritable: Bool = true,
+        countsInTotalPower: Bool = true
     ) {
         self.switchEntityId = switchEntityId
         self.isOn = isOn
@@ -207,6 +211,7 @@ public struct PlugSpec: Equatable, Sendable {
         self.childLockEntityId = childLockEntityId
         self.isChildLocked = isChildLocked
         self.powerWritable = powerWritable
+        self.countsInTotalPower = countsInTotalPower
     }
 }
 

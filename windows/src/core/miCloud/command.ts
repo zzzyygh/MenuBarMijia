@@ -2,6 +2,7 @@ import type { DeviceCommand } from "../models.js";
 import type { MiotActionCall, MiotPropWrite } from "./client.js";
 import {
   hvacModeFromDescription,
+  isMainsBreaker,
   miotShortName,
   parseMiotAddress,
   type MiotDeviceSpec,
@@ -15,6 +16,8 @@ export type MiotWrite =
 
 export const MiotCommandMapper = {
   map(command: DeviceCommand, spec: MiotDeviceSpec): MiotWrite {
+    // A mains breaker is read-only whatever the spec allows: no path may switch it (#265).
+    if (isMainsBreaker(spec)) throw new Error("Unsupported device: electronic-valve");
     const addr = parseMiotAddress(command.entityId);
     if (!addr) throw new Error(`Invalid MIoT address: ${command.entityId}`);
     const service = spec.services.find((s) => s.iid === addr.siid);

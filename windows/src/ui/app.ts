@@ -452,7 +452,7 @@ export class MenuMijiaWindowsApp {
   private get totalPowerWatts(): number {
     let watts = 0;
     for (const d of this.devices) {
-      if (d.kind.kind === "plug" && d.kind.powerWatts && d.kind.powerWatts > 0) {
+      if (d.kind.kind === "plug" && d.kind.countsInTotalPower !== false && d.kind.powerWatts && d.kind.powerWatts > 0) {
         watts += d.kind.powerWatts;
       }
     }
