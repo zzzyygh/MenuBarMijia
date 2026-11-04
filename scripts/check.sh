@@ -90,6 +90,13 @@ if search_matches 'event\.keyCode[[:space:]]*==[[:space:]]*[0-9]+' Sources/; the
     exit 1
 fi
 
+# Swift Testing macros expand recursively: `#require(try #require(...))` fails compilation on every
+# platform, before any test runs. One grep here replaces a CI round trip.
+if search_matches '#require\([^)]*#require' Tests/; then
+    echo "❌ Swift Testing 的 #require 不能嵌套展开（宏递归会编译失败），请先解包到变量再 require！"
+    exit 1
+fi
+
 for f in $(search_files 'UNUserNotificationCenter\.current\(\)' Sources || true); do
     if ! search_quiet 'pathExtension == "app"' "$f"; then
         echo "❌ $f 调用了 UNUserNotificationCenter.current()，但缺少 Bundle.main.bundleURL.pathExtension == \"app\" 守卫（会导致 swift test 崩溃）！"
