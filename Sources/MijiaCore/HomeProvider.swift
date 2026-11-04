@@ -370,17 +370,32 @@ public actor HAWebSocketProvider: HomeProvider {
                 return .hls(hlsURL)
             }
         }
-        if let snapshotPath = spec.snapshotPath, !snapshotPath.isEmpty,
-           let snapURL = Self.resolveStreamURL(pathOrURL: snapshotPath, baseURLString: baseURLString) {
-            return .snapshot(snapURL)
+        if let snapshotPath = spec.snapshotPath, !snapshotPath.isEmpty {
+            // HA serves every camera entity as MJPEG, including ones without the `stream`
+            // integration or HLS support, so prefer real motion over ~1 fps snapshot polling.
+            if let mjpegPath = Self.mjpegProxyPath(fromSnapshotPath: snapshotPath),
+               let mjpegURL = Self.resolveStreamURL(pathOrURL: mjpegPath, baseURLString: baseURLString) {
+                return .mjpeg(mjpegURL)
+            }
+            if let snapURL = Self.resolveStreamURL(pathOrURL: snapshotPath, baseURLString: baseURLString) {
+                return .snapshot(snapURL)
+            }
         }
         throw HomeProviderError.serviceCallFailed(
             404,
             L10n.tr(
-                "该摄像头在 Home Assistant 中未暴露视频流（可通过 go2rtc 或在下方填写流地址接入）",
-                "This camera has no live stream in Home Assistant (connect via go2rtc or enter a stream URL below)"
+                "Home Assistant 没有为这台摄像头提供画面（米家集成只提供开关，没有摄像头实体）。登录米家账号即可在本应用直接观看，或在下方填写 go2rtc / HLS 流地址",
+                "Home Assistant has no video for this camera (the Xiaomi Home integration only adds switches, no camera entity). Sign in to Mi Home to watch it here, or enter a go2rtc / HLS stream URL below"
             )
         )
+    }
+
+    /// Maps HA's snapshot proxy (`/api/camera_proxy/<entity>?token=…`) to its MJPEG twin
+    /// (`/api/camera_proxy_stream/<entity>?token=…`). The access token query is kept as-is.
+    public static func mjpegProxyPath(fromSnapshotPath path: String) -> String? {
+        let marker = "/api/camera_proxy/"
+        guard let range = path.range(of: marker) else { return nil }
+        return path.replacingCharacters(in: range, with: "/api/camera_proxy_stream/")
     }
 
     private func completeStreamRequest(id: Int, urlPath: String?) {

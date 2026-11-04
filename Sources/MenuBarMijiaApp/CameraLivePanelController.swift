@@ -723,6 +723,15 @@ struct CameraLivePanelView: View {
         return spec
     }
 
+    /// HA has no video for this camera and no Mi account is signed in (#97).
+    private var offersMiSignIn: Bool {
+        guard let device, let cameraSpec else { return false }
+        return cameraSpec.offersMiSignInForVideo(
+            backend: store.deviceBackend(for: device.id),
+            hasMiSource: store.hasMiSource
+        )
+    }
+
     var body: some View {
         let _ = store.effectiveLanguage
         VStack(spacing: 0) {
@@ -981,13 +990,22 @@ struct CameraLivePanelView: View {
                     .padding(.horizontal, 18)
 
                 HStack(spacing: 8) {
+                    if offersMiSignIn {
+                        Button {
+                            SettingsWindowOpener.shared.show(tab: .connection)
+                        } label: {
+                            Label(L10n.tr("登录米家观看", "Sign in to Mi Home to Watch"), systemImage: "qrcode.viewfinder")
+                        }
+                        .buttonStyle(PillActionButtonStyle(isSelected: true, tintColor: .orange))
+                    }
+
                     Button {
                         controller.isShowingURLConfig = true
                         controller.setURLFieldActive(true)
                     } label: {
                         Label(L10n.tr("填写 go2rtc / HLS 流地址", "Set go2rtc / HLS Stream URL"), systemImage: "link.badge.plus")
                     }
-                    .buttonStyle(PillActionButtonStyle(isSelected: true, tintColor: .cyan))
+                    .buttonStyle(PillActionButtonStyle(isSelected: !offersMiSignIn, tintColor: .cyan))
 
                     Button {
                         controller.reloadStream()

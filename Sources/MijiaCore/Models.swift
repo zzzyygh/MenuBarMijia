@@ -384,6 +384,18 @@ public struct CameraSpec: Equatable, Sendable {
     }
 }
 
+extension CameraSpec {
+    /// True when Home Assistant has no video for this camera (no camera entity and no snapshot)
+    /// and the user has no Mi account yet, so signing in to Mi Home is the way to watch it: a
+    /// paired Mi copy then drives the card and plays through the local go2rtc Xiaomi bridge.
+    public func offersMiSignInForVideo(backend: HomeBackend, hasMiSource: Bool) -> Bool {
+        backend == .homeAssistant
+            && !hasMiSource
+            && (streamEntityId ?? "").isEmpty
+            && (snapshotPath ?? "").isEmpty
+    }
+}
+
 public enum CameraStreamSource: Equatable, Sendable {
     case hls(URL)
     /// Progressive fragmented MP4 (H.264/H.265) decoded natively; `mjpegFallback` is played
