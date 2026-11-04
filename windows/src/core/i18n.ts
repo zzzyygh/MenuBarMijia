@@ -477,6 +477,7 @@ const CATALOG: Readonly<Record<string, readonly [string, string]>> = {
   "正在握手并连接摄像机实时画面…": ["正在握手并连接摄像机实时画面…", "Negotiating P2P and connecting to live camera stream…"],
   "重新连接": ["重新连接", "Reconnect"],
   "实时画面连接失败，请点右上角重新连接": ["实时画面连接失败，请点右上角重新连接", "Live view failed to connect; use Reconnect at the top right"],
+  "go2rtc 未返回画面": ["go2rtc 未返回画面", "go2rtc returned no picture"],
 
   // Air Purifier (#98)
   "最爱": ["最爱", "Favorite"],

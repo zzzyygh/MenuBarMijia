@@ -2058,6 +2058,7 @@ describe("Smart camera support and live view (#97)", () => {
     const invoke = async (name: string, args: Record<string, unknown> = {}): Promise<unknown> => {
       if (name === "go2rtc_endpoint") return { origin: "http://127.0.0.1:43123", authorization: "Basic aa" };
       if (name === "bridge_hls_camera_stream") return "cam_mjpeg_living";
+      if (name === "go2rtc_jpeg_frame") return "aGVsbG8";
       if (name !== "native_http") return undefined;
       const url = String(args["url"] ?? "");
       if (url.includes("/instance?")) {
@@ -2229,7 +2230,7 @@ describe("Smart camera support and live view (#97)", () => {
       }),
     );
     const app = new MenuMijiaWindowsApp(element("#app"));
-    app.cameraLive.cameraFrameBudgetMs = options.budgetMs;
+    app.cameraLive.cameraFrameGiveUpMs = options.budgetMs;
     app.cameraLive.cameraFrameRetryMs = options.retryMs;
     await waitFor(() => document.querySelector('[data-body-device="cam-1"]') !== null);
     await click('[data-body-device="cam-1"]');
@@ -2281,7 +2282,7 @@ describe("Smart camera support and live view (#97)", () => {
     assert.equal(live.p2pStarts.count, 1);
 
     let copied = "";
-    Object.defineProperty(window.navigator, "clipboard", {
+    Object.defineProperty(globalThis.navigator, "clipboard", {
       configurable: true,
       value: {
         writeText: async (text: string) => {
