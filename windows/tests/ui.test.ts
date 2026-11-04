@@ -2125,6 +2125,179 @@ describe("Smart camera support and live view (#97)", () => {
       "cloud HLS playback does not consume the P2P quality subtype",
     );
   });
+
+  async function openXiaomiCloudP2PCamera(options: {
+    budgetMs: number;
+    retryMs: number;
+    frame: (src: string) => Promise<string>;
+  }): Promise<{
+    bridgeCalls: Array<Record<string, unknown>>;
+    frameSrcs: string[];
+    p2pStarts: { count: number };
+  }> {
+    const camSpec = {
+      type: "urn:miot-spec-v2:device:camera:0000A01C:chuangmi-81ac1:1",
+      services: [
+        {
+          iid: 2,
+          type: "urn:miot-spec-v2:service:camera-control:0000782F:chuangmi-81ac1:1",
+          properties: [
+            { iid: 1, type: "urn:miot-spec-v2:property:on:00000006:chuangmi-81ac1:1", format: "bool", access: ["read", "write"] },
+          ],
+          actions: [],
+        },
+        {
+          iid: 9,
+          type: "urn:miot-spec-v2:service:p2p-stream:00007881:chuangmi-81ac1:1",
+          properties: [],
+          actions: [
+            { iid: 1, type: "urn:miot-spec-v2:action:start-p2p-stream:00002839:chuangmi-81ac1:1", in: [], out: [] },
+            { iid: 2, type: "urn:miot-spec-v2:action:stop-stream:00002822:chuangmi-81ac1:1", in: [], out: [] },
+          ],
+        },
+      ],
+    };
+    const security = "AQIDBAUGBwgJCgsMDQ4PEA==";
+    const bridgeCalls: Array<Record<string, unknown>> = [];
+    const frameSrcs: string[] = [];
+    const p2pStarts = { count: 0 };
+    const invoke = async (name: string, args: Record<string, unknown> = {}): Promise<unknown> => {
+      if (name === "start_xiaomi_camera_bridge") {
+        bridgeCalls.push(args);
+        return "cam_h264_cam1|cam_mjpeg_cam1";
+      }
+      if (name === "go2rtc_jpeg_frame") {
+        const src = String(args.src ?? "");
+        frameSrcs.push(src);
+        return options.frame(src);
+      }
+      if (name !== "native_http") return undefined;
+      const url = String(args["url"] ?? "");
+      if (url.includes("/instance?")) {
+        return { status: 200, headers: {}, body: JSON.stringify(camSpec) };
+      }
+      if (url.includes("/instances?")) {
+        return { status: 200, headers: {}, body: JSON.stringify({ instances: [{ model: "chuangmi.camera.81ac1", type: camSpec.type }] }) };
+      }
+      let result: unknown = {};
+      if (url.includes("device_list")) {
+        result = {
+          list: [{
+            did: "cam-1",
+            name: "客厅摄像机",
+            model: "chuangmi.camera.81ac1",
+            isOnline: true,
+            localip: "192.168.1.50",
+            spec_type: camSpec.type,
+          }],
+          has_more: false,
+        };
+      } else if (url.includes("miss_get_vendor")) {
+        result = {
+          public_key: "device-public",
+          sign: "device-sign",
+          vendor: { vendor: 4, vendor_params: { p2p_id: "uid-1" } },
+        };
+      } else if (url.includes("homeroom/")) {
+        result = { homelist: [{ id: "1", name: "家", dids: [], roomlist: [{ id: "10", name: "客厅", dids: ["cam-1"] }] }] };
+      } else if (url.includes("miotspec/prop/")) {
+        result = [{ did: "cam-1", siid: 2, piid: 1, code: 0, value: true }];
+      } else if (url.includes("miotspec/action")) {
+        const fields = new URLSearchParams(String(args["body"] ?? ""));
+        const nonce = fields.get("_nonce") ?? "";
+        const encrypted = fields.get("data") ?? "";
+        const payload = JSON.parse(
+          MiCloudCrypto.decryptResponse(encrypted, MiCloudCrypto.signedNonce(security, nonce)),
+        ) as { params?: { siid: number; aiid: number } };
+        if (payload.params?.aiid === 1) {
+          p2pStarts.count += 1;
+          result = { code: 0, out: [] };
+        } else if (payload.params?.aiid === 2) {
+          result = { code: -1, out: [] };
+        }
+      }
+      return { status: 200, headers: {}, body: JSON.stringify({ code: 0, result }) };
+    };
+    Object.defineProperty(window, "__TAURI_INTERNALS__", { value: { invoke }, configurable: true });
+    localStorage.setItem(
+      "menumijia.windows.settings.v2",
+      JSON.stringify({
+        connectionMode: "xiaomiCloud",
+        hasCompletedOnboarding: true,
+        miSession: { userId: "100", cUserId: "c100", ssecurity: security, serviceToken: "tok", passToken: "", region: "cn" },
+        cachedModelTypes: { "chuangmi.camera.81ac1": camSpec.type },
+      }),
+    );
+    const app = new MenuMijiaWindowsApp(element("#app"));
+    app.cameraLive.cameraFrameBudgetMs = options.budgetMs;
+    app.cameraLive.cameraFrameRetryMs = options.retryMs;
+    await waitFor(() => document.querySelector('[data-body-device="cam-1"]') !== null);
+    await click('[data-body-device="cam-1"]');
+    return { bridgeCalls, frameSrcs, p2pStarts };
+  }
+
+  it("shows a picture after one missed Xiaomi cloud frame without opening a second bridge", async () => {
+    let misses = 0;
+    const live = await openXiaomiCloudP2PCamera({
+      budgetMs: 5_000,
+      retryMs: 0,
+      frame: async () => {
+        misses += 1;
+        if (misses === 1) throw "读取摄像机画面失败 (HTTP 404)";
+        return "aGVsbG8";
+      },
+    });
+    await waitFor(
+      () =>
+        (document.querySelector("#cc-camera-live-img") as HTMLImageElement | null)?.getAttribute("src") ===
+        "data:image/jpeg;base64,aGVsbG8",
+      800,
+    );
+    assert.equal(live.bridgeCalls.length, 1);
+    assert.equal(live.p2pStarts.count, 1);
+    assert.equal(document.querySelector("#btn-copy-camera-diag"), null);
+    assert.equal((document.body.textContent ?? "").includes("正在握手并连接摄像机实时画面"), false);
+  });
+
+  it("stops a Xiaomi cloud live view after repeated frame failures instead of renegotiating", async () => {
+    const live = await openXiaomiCloudP2PCamera({
+      budgetMs: 80,
+      retryMs: 15,
+      frame: async () => {
+        throw "读取摄像机画面失败 (HTTP 500)";
+      },
+    });
+    await waitFor(() => (document.body.textContent ?? "").includes("读取摄像机画面失败 (HTTP 500)"), 500);
+    assert.match(document.body.textContent ?? "", /实时画面连接失败，请点右上角重新连接/);
+    assert.equal((document.body.textContent ?? "").includes("正在握手并连接摄像机实时画面"), false);
+    assert.ok(live.frameSrcs.length >= 2, `expected repeated frame reads, saw ${live.frameSrcs.length}`);
+    assert.ok(live.frameSrcs.every((src) => src === "cam_mjpeg_cam1"));
+    assert.equal(live.bridgeCalls.length, 1);
+    assert.equal(live.p2pStarts.count, 1);
+    assert.ok(document.querySelector("#btn-copy-camera-diag"));
+
+    await new Promise((resolve) => setTimeout(resolve, 1_300));
+    assert.equal(live.bridgeCalls.length, 1, "a missed frame must not open another P2P bridge");
+    assert.equal(live.p2pStarts.count, 1);
+
+    let copied = "";
+    Object.defineProperty(window.navigator, "clipboard", {
+      configurable: true,
+      value: {
+        writeText: async (text: string) => {
+          copied = text;
+        },
+      },
+    });
+    await click("#btn-copy-camera-diag");
+    assert.match(copied, /HTTP 500/);
+    assert.match(copied, /chuangmi\.camera\.81ac1/);
+    assert.match(document.body.textContent ?? "", /已复制脱敏诊断信息/);
+
+    await click("#btn-reload-camera-live");
+    await waitFor(() => live.bridgeCalls.length === 2);
+    assert.equal(live.p2pStarts.count, 2);
+  });
 });
 
 describe("Air purifier support (#98)", () => {

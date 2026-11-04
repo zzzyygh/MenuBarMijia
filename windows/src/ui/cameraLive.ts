@@ -48,6 +48,15 @@ export class CameraLiveController {
   public static readonly CAMERA_KEEP_ALIVE_MS = 120_000;
   /** Tests pin this short to watch the teardown without waiting two minutes. */
   cameraKeepAliveMs = CameraLiveController.CAMERA_KEEP_ALIVE_MS;
+  /**
+   * How long a live view may go without a JPEG before it stops and shows the
+   * last go2rtc error. Tests pin this short. A fresh P2P session often needs
+   * longer than one frame request, and renegotiating early stalls the camera.
+   */
+  public static readonly CAMERA_FRAME_BUDGET_MS = 20_000;
+  cameraFrameBudgetMs = CameraLiveController.CAMERA_FRAME_BUDGET_MS;
+  /** Pause between missed frames. Tests pin this at zero. */
+  cameraFrameRetryMs = 800;
   public liveCameraStreamURL: string | null = null;
   public liveCameraLoading = false;
   public liveCameraError: string | null = null;
