@@ -1,8 +1,8 @@
 import MijiaCore
 import SwiftUI
 
-/// Position, pause, battery and fault for a window opener. Kept out of `DeviceCardView` so that
-/// file stays under the line-count gate (#184).
+/// Position, open/stop/close, battery and fault for a cover (window opener or curtain). Kept out
+/// of `DeviceCardView` so that file stays under the line-count gate (#184).
 struct CoverDetailDrawer: View {
     let device: SmartDevice
     let spec: CoverSpec
@@ -37,14 +37,16 @@ struct CoverDetailDrawer: View {
                 )
                 .disabled(!device.isOnline)
             }
-            if spec.pauseDescription != nil || spec.batteryPercent != nil {
+            if spec.canMove || spec.batteryPercent != nil {
                 HStack(spacing: 8) {
+                    if let open = spec.openDescription {
+                        motorButton(open)
+                    }
                     if let pause = spec.pauseDescription {
-                        Button(Self.actionTitle(pause)) {
-                            store.setCoverMotor(device.id, description: pause)
-                        }
-                        .buttonStyle(PillActionButtonStyle())
-                        .disabled(!device.isOnline)
+                        motorButton(pause)
+                    }
+                    if let close = spec.closeDescription {
+                        motorButton(close)
                     }
                     if let battery = spec.batteryPercent {
                         Spacer(minLength: 0)
@@ -56,6 +58,14 @@ struct CoverDetailDrawer: View {
                 }
             }
         }
+    }
+
+    private func motorButton(_ description: String) -> some View {
+        Button(Self.actionTitle(description)) {
+            store.setCoverMotor(device.id, description: description)
+        }
+        .buttonStyle(PillActionButtonStyle())
+        .disabled(!device.isOnline)
     }
 
     private static func actionTitle(_ description: String) -> String {

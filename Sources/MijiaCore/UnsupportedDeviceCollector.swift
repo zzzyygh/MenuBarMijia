@@ -63,11 +63,12 @@ public enum UnsupportedDeviceCollector {
         // A panel whose keys are listed as split devices is shown through those keys only.
         let splitParents = Set(devices.compactMap(\.splitParentDid))
         let synthesizedIds = Set(synthesized.devices.map(\.id))
+        let synthesizedDIDs = Set(synthesized.deviceIdentities.values.flatMap(\.dids))
 
         var out: [UnsupportedDevice] = []
         for record in devices where !splitParents.contains(record.did) {
             let isBuildable = specs[record.model].map { MiotSynthesizer.supportedServiceName(for: $0) != nil } ?? false
-            if isBuildable && synthesizedIds.contains(record.did) { continue }
+            if isBuildable, synthesizedIds.contains(record.did) || synthesizedDIDs.contains(record.did) { continue }
             let lowerModel = record.model.lowercased()
             let isNetworkInfrastructure = lowerModel.hasPrefix("lumi.gateway")
                 || lowerModel.contains(".gateway.")

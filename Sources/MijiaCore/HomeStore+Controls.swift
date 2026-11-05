@@ -102,10 +102,23 @@ extension HomeStore {
                 toggleExpanded(device.id)
                 return nil
             }
-            let shouldOpen = pos == 0
-            s.positionPercent = shouldOpen ? 100 : 0
-            updated.kind = .cover(s)
-            command = .setSelectOption(entityId: s.entityId, option: shouldOpen ? open : close)
+            // A curtain tap is a three-way control: travel stops, otherwise open/close. Window
+            // openers and the other subtypes keep the one-tap open/close they had before (#223).
+            if s.subtype == .curtain, s.isMoving {
+                guard let pause = s.pauseDescription else {
+                    toggleExpanded(device.id)
+                    return nil
+                }
+                s.motion = .stopped
+                updated.kind = .cover(s)
+                command = .setSelectOption(entityId: s.entityId, option: pause)
+            } else {
+                let shouldOpen = pos == 0
+                s.positionPercent = shouldOpen ? 100 : 0
+                s.motion = shouldOpen ? .opening : .closing
+                updated.kind = .cover(s)
+                command = .setSelectOption(entityId: s.entityId, option: shouldOpen ? open : close)
+            }
         case .speaker, .fridge, .sensor:
             toggleExpanded(device.id)
             return nil
@@ -474,11 +487,19 @@ extension HomeStore {
         let previous = devices[idx]
         let opening = s.openDescription.map { description.caseInsensitiveCompare($0) == .orderedSame } ?? false
         let closing = s.closeDescription.map { description.caseInsensitiveCompare($0) == .orderedSame } ?? false
+        let pausing = s.pauseDescription.map { description.caseInsensitiveCompare($0) == .orderedSame } ?? false
         if opening || closing {
             guard allowManualControl(opening ? .power(true) : .power(false), for: previous) else { return }
         }
-        if opening { s.positionPercent = 100 }
-        if closing { s.positionPercent = 0 }
+        if opening {
+            s.positionPercent = 100
+            s.motion = .opening
+        }
+        if closing {
+            s.positionPercent = 0
+            s.motion = .closing
+        }
+        if pausing { s.motion = .stopped }
         devices[idx].kind = .cover(s)
         if opening || closing { lockOptimistic(deviceId, duration: .seconds(8)) }
         dispatchImmediate(

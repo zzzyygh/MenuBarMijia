@@ -519,12 +519,20 @@ public enum CoverSubtype: String, Equatable, Sendable {
     /// a cover card at all; this table decides its risk class. An unlisted service keeps the
     /// fallback so a new cover never lands in a riskier class by omission.
     private static let miotServiceSubtypes: [String: CoverSubtype] = [
+        "curtain": .curtain,
         "window-opener": .windowOpener,
     ]
 
     public init(miotServiceShortName: String?) {
         self = Self.miotServiceSubtypes[miotServiceShortName ?? ""] ?? .windowOpener
     }
+}
+
+/// What the motor reports it is doing. A tap stops a moving cover and otherwise moves it.
+public enum CoverMotion: String, Equatable, Sendable {
+    case stopped
+    case opening
+    case closing
 }
 
 /// A cover (GLOSSARY `CoverDevice`). Position is 0 closed … 100 open. Motor words are the spec's
@@ -539,6 +547,7 @@ public struct CoverSpec: Equatable, Sendable {
     public var pauseDescription: String?
     public var batteryPercent: Int?
     public var faultText: String?
+    public var motion: CoverMotion
 
     public init(
         entityId: String,
@@ -549,7 +558,8 @@ public struct CoverSpec: Equatable, Sendable {
         closeDescription: String? = nil,
         pauseDescription: String? = nil,
         batteryPercent: Int? = nil,
-        faultText: String? = nil
+        faultText: String? = nil,
+        motion: CoverMotion = .stopped
     ) {
         self.entityId = entityId
         self.subtype = subtype
@@ -560,9 +570,11 @@ public struct CoverSpec: Equatable, Sendable {
         self.pauseDescription = pauseDescription
         self.batteryPercent = batteryPercent
         self.faultText = faultText
+        self.motion = motion
     }
 
     public var canMove: Bool { openDescription != nil && closeDescription != nil }
+    public var isMoving: Bool { motion != .stopped }
 }
 
 public enum DeviceKind: Equatable, Sendable {
@@ -761,6 +773,7 @@ public struct SmartDevice: Identifiable, Equatable, Sendable {
             next.kind = .vacuum(spec)
         case (.cover(var spec), .cover(let want)):
             spec.positionPercent = want.positionPercent
+            spec.motion = want.motion
             next.kind = .cover(spec)
         case (.tv(var spec), .tv(let want)):
             spec.state = want.state
@@ -797,7 +810,7 @@ public struct SmartDevice: Identifiable, Equatable, Sendable {
         case .sensor:
             return false
         case .cover(let spec):
-            return spec.positionWritable || spec.pauseDescription != nil
+            return spec.positionWritable || spec.canMove || spec.pauseDescription != nil
                 || spec.batteryPercent != nil || spec.faultText != nil
         }
     }

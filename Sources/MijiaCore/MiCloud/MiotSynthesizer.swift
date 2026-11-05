@@ -47,6 +47,7 @@ public enum MiotSynthesizer {
         ("air-fresh", buildAirPurifier),
         ("humidifier", buildAirPurifier),
         ("vacuum", buildVacuum),
+        ("curtain", buildCover),
         ("window-opener", buildCover),
         ("fridge", buildFridge),
         ("camera-control", buildCamera),
@@ -91,39 +92,43 @@ public enum MiotSynthesizer {
         var identities: [String: DeviceSourceIdentity] = [:]
 
         for record in devices where !splitParents.contains(record.did) {
-            guard let spec = specs[record.model],
-                  let (service, build) = primary(for: record, spec: spec) else { continue }
+            guard let spec = specs[record.model] else { continue }
+            let plans = plans(for: record, spec: spec)
+            guard !plans.isEmpty else { continue }
             let scopedSpec = specForRecord(record, spec: spec)
             let reader = MiotReader(did: record.miotDid, spec: scopedSpec, values: values)
-            let kind = build(reader, service)
+            let splitPerService = plans.count > 1
 
             let room = roomByDid[record.did] ?? record.splitParentDid.flatMap { roomByDid[$0] }
             let roomName = DeviceSynthesizer.normalizeRoomName(room?.name ?? "")
             let roomId = DeviceSynthesizer.normalizedRoomId(for: roomName, fallback: room.map { "mi_room_\($0.id)" } ?? "other")
             let name = DeviceSynthesizer.cleanDeviceName(record.name, roomName: roomName, model: record.model)
 
-            let device = SmartDevice(
-                id: record.did,
-                name: name,
-                roomId: roomId,
-                roomName: roomName,
-                model: record.model,
-                isOnline: record.isOnline,
-                kind: record.isOnline ? kind : Self.redactOfflineLockClaim(kind),
-                isSharedHome: room?.isSharedHome ?? false
-            )
-            smartDevices.append(device)
-            identities[device.id] = DeviceSourceIdentity(
-                dids: [record.did],
-                macAddresses: record.splitParentDid == nil ? [record.mac].compactMap { $0 } : [],
-                model: record.model,
-                name: name,
-                roomName: roomName,
-                kindTag: kind.tag
-            )
+            for (service, build) in plans {
+                let kind = build(reader, service)
+                let device = SmartDevice(
+                    id: splitPerService ? trackID(record: record, siid: service.iid) : record.did,
+                    name: splitPerService ? trackName(service: service, fallback: name) : name,
+                    roomId: roomId,
+                    roomName: roomName,
+                    model: record.model,
+                    isOnline: record.isOnline,
+                    kind: record.isOnline ? kind : Self.redactOfflineLockClaim(kind),
+                    isSharedHome: room?.isSharedHome ?? false
+                )
+                smartDevices.append(device)
+                identities[device.id] = DeviceSourceIdentity(
+                    dids: [record.did],
+                    macAddresses: record.splitParentDid == nil ? [record.mac].compactMap { $0 } : [],
+                    model: record.model,
+                    name: device.name,
+                    roomName: roomName,
+                    kindTag: kind.tag
+                )
 
-            if let reading = device.environmentReading {
-                readings.append(reading)
+                if let reading = device.environmentReading {
+                    readings.append(reading)
+                }
             }
         }
 
@@ -139,10 +144,13 @@ public enum MiotSynthesizer {
 
     /// The (did, siid, piid) triples the synthesizer reads for this device; poll exactly these.
     public static func requiredProps(for device: MiDeviceRecord, spec: MiotDeviceSpec) -> [MiotPropKey] {
-        guard let (service, build) = primary(for: device, spec: spec) else { return [] }
+        let plans = plans(for: device, spec: spec)
+        guard !plans.isEmpty else { return [] }
         let scopedSpec = specForRecord(device, spec: spec)
         let reader = MiotReader(did: device.miotDid, spec: scopedSpec, values: [:])
-        _ = build(reader, service)
+        for (service, build) in plans {
+            _ = build(reader, service)
+        }
         return reader.touched
     }
 
@@ -169,6 +177,41 @@ public enum MiotSynthesizer {
     /// Registry key of the builder that will handle this spec, or nil when unsupported.
     public static func supportedServiceName(for spec: MiotDeviceSpec) -> String? {
         primary(for: spec)?.0.shortName
+    }
+
+    /// The cards a record produces: normally one. A dual-track curtain motor publishes two
+    /// `curtain` services (drape + sheer) and gets one card per track, the same split shape as a
+    /// multi-key panel's keys.
+    static func plans(for record: MiDeviceRecord, spec: MiotDeviceSpec) -> [(MiotService, KindBuilder)] {
+        let single = primary(for: record, spec: spec).map { [$0] } ?? []
+        guard record.splitParentDid == nil,
+              spec.shortName == "curtain",
+              let build = registry.first(where: { $0.service == "curtain" })?.build else {
+            return single
+        }
+        let tracks = spec.services(named: "curtain").filter { service in
+            ["motor-control", "current-position", "target-position"].contains { service.property(named: $0) != nil }
+        }
+        return tracks.count > 1 ? tracks.map { ($0, build) } : single
+    }
+
+    /// Card id for one track of a multi-track motor, shaped like the cloud's split-key dids.
+    static func trackID(record: MiDeviceRecord, siid: Int) -> String {
+        "\(record.did).s\(siid)"
+    }
+
+    /// A track card takes its service's description ("Drape Curtain" / "Lace Curtain").
+    static func trackName(service: MiotService, fallback: String) -> String {
+        let description = service.description?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        switch description.lowercased() {
+        case "drape curtain": return L10n.tr("布帘", description)
+        case "lace curtain": return L10n.tr("纱帘", description)
+        case "left curtain": return L10n.tr("左帘", description)
+        case "right curtain": return L10n.tr("右帘", description)
+        case "curtain": return L10n.tr("窗帘", description)
+        case "": return fallback
+        default: return description
+        }
     }
 
     /// Split keys use their own switch service instead of the panel's first one.
@@ -480,6 +523,7 @@ public enum MiotSynthesizer {
     static func buildCover(_ r: MiotReader, _ s: MiotService) -> DeviceKind {
         let current = r.ref("current-position", in: s)
         let target = r.ref("target-position", in: s)
+        let status = r.ref("status", in: s)
         let fault = r.ref("device-fault", in: s)
         let battery = r.first("battery-level", in: r.spec.services(named: "battery"))
         let motor = s.properties.first { $0.shortName == "motor-control" && $0.isWritable }
@@ -502,8 +546,19 @@ public enum MiotSynthesizer {
             closeDescription: coverMotorDescription(in: items, word: .close),
             pauseDescription: coverMotorDescription(in: items, word: .pause),
             batteryPercent: battery?.value?.intValue,
-            faultText: faultText
+            faultText: faultText,
+            motion: coverMotion(forDescription: status?.valueDescription)
         ))
+    }
+
+    /// Only a status that names movement makes a cover moving. Some specs reuse "Open"/"Close" for
+    /// the end state, so a tap must not read those as travel.
+    static func coverMotion(forDescription description: String?) -> CoverMotion {
+        switch description?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "opening", "打开中": return .opening
+        case "closing", "关闭中": return .closing
+        default: return .stopped
+        }
     }
 
     enum CoverMotorWord { case open, close, pause }

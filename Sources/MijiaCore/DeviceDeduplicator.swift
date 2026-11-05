@@ -99,6 +99,15 @@ public enum DeviceDeduplicator {
                     )
                 )
             } else {
+                // A Mi record split into several cards (a dual-track curtain) shares its did with
+                // every track, so none of them pairs 1:1 with the HA copy. That copy is still the
+                // same physical device and must not appear as an extra card beside the tracks.
+                if let haIdentity = ha.identity,
+                   miCandidates.contains(where: { candidate in
+                       candidate.identity.map { sharesDID(haIdentity, $0) } ?? false
+                   }) {
+                    continue
+                }
                 draftCards.append(
                     DraftCard(
                         winner: ha,
