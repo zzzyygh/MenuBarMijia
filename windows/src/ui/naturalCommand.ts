@@ -61,6 +61,30 @@ export async function handleNaturalCommand(host: MenuMijiaWindowsApp, rawInput: 
     if (!fromScheduled) {
       const delaySpec = DelayPhrase.extract(trimmed);
       if (delaySpec) {
+        const queue = (intents: readonly DeviceIntent[] | undefined): void => {
+          const scheduled: ScheduledCommand = {
+            id: `${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+            command: delaySpec.remainder,
+            delaySeconds: delaySpec.seconds,
+            fireTimestampMs: Date.now() + delaySpec.seconds * 1000,
+            reply: t("{delay}后：{command}", { delay: DelayPhrase.formatDelay(delaySpec.seconds), command: delaySpec.remainder }),
+            intents,
+          };
+          host.scheduledCommands.push(scheduled);
+          host.replyBanner = {
+            text: t("已设定 {delay}后执行「{command}」", { delay: DelayPhrase.formatDelay(delaySpec.seconds), command: delaySpec.remainder }),
+            source: t("定时任务"),
+          };
+          host.render();
+        };
+        // A learned phrase wins over the generic parser, exactly as it does without a delay.
+        const learned = host.settings.learnedShortcuts.find(
+          (shortcut) => shortcut.phrase.replace(/\s+/g, "") === delaySpec.remainder.replace(/\s+/g, ""),
+        );
+        if (learned) {
+          queue(learned.intents);
+          return;
+        }
         const aliasedDevices = withAliases(host.layout, host.devices);
         const resolved = LocalIntentParser.parse(
           delaySpec.remainder,
@@ -78,20 +102,7 @@ export async function handleNaturalCommand(host: MenuMijiaWindowsApp, rawInput: 
           host.render();
           return;
         }
-        const scheduled: ScheduledCommand = {
-          id: `${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-          command: delaySpec.remainder,
-          delaySeconds: delaySpec.seconds,
-          fireTimestampMs: Date.now() + delaySpec.seconds * 1000,
-          reply: t("{delay}后：{command}", { delay: DelayPhrase.formatDelay(delaySpec.seconds), command: delaySpec.remainder }),
-          intents: resolved?.intents,
-        };
-        host.scheduledCommands.push(scheduled);
-        host.replyBanner = {
-          text: t("已设定 {delay}后执行「{command}」", { delay: DelayPhrase.formatDelay(delaySpec.seconds), command: delaySpec.remainder }),
-          source: t("定时任务"),
-        };
-        host.render();
+        queue(resolved?.intents);
         return;
       }
     }

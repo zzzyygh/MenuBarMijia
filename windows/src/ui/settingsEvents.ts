@@ -34,7 +34,7 @@ export interface SettingsEventsHost {
   localControlRevision: number;
   pendingCloudConsent: { utterance: string; endpoint: string } | null;
   replyBanner: ReplyBannerState | null;
-  selectedRoom: string;
+  selectRoom(roomId: string | null, roomName?: string): void;
   habitSequences(): readonly HabitSequenceEntry[];
   lastHabitAction(): HabitLastAction | null;
   checkForAppUpdate(manual: boolean): Promise<void>;
@@ -161,7 +161,7 @@ export function bindSettingsEvents(host: SettingsEventsHost): void {
         host.replyBanner = null;
         host.settings.connectionMode = mode;
         if (mode !== "xiaomiCloud") host.cloudValuesStale = false;
-        host.selectedRoom = "全部";
+        host.selectRoom(null);
         if (mode === "demo") {
           host.devices = demoDevices();
           host.scenes = demoScenes();

@@ -648,7 +648,7 @@ import type { MenuMijiaWindowsApp } from "./app.js";
 
     host.root.querySelectorAll<HTMLElement>("[data-room]").forEach((btn) => {
       btn.addEventListener("click", () => {
-        host.selectedRoom = btn.dataset.room ?? "全部";
+        host.selectRoom(btn.dataset.roomId ?? null, btn.dataset.room);
         host.animateEntrance = true;
         host.expandedDeviceId = null;
         host.render();

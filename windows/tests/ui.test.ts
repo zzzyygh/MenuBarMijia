@@ -1059,6 +1059,40 @@ describe("Timers the PC slept through (#22)", () => {
       Date.now = realNow;
     }
   });
+
+  it("keeps a learned phrase's devices when the same phrase is scheduled", async () => {
+    localStorage.setItem("menumijia.windows.settings.v2", JSON.stringify({
+      connectionMode: "demo",
+      hasCompletedOnboarding: true,
+      learnedShortcuts: [{
+        phrase: "关灯",
+        reply: "已关闭书房台灯",
+        intents: [{ targetId: "light.study_desk", operation: { kind: "power", isOn: false } }],
+        learnedAt: new Date().toISOString(),
+      }],
+    }));
+    new MenuMijiaWindowsApp(element("#app"));
+    await setImmediate();
+
+    await click('[data-room="客厅"]');
+    await command("10分钟后关灯");
+    assert.match(document.body.textContent ?? "", /已设定 10 分钟后执行「关灯」/);
+    assert.match(tile("light.living_ceiling"), /已开启/);
+
+    const realNow = Date.now;
+    Date.now = () => realNow() + 3 * 3600 * 1000;
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 1_200));
+      assert.match(document.body.textContent ?? "", /已错过定时：关灯/);
+      await click("[data-run-missed]");
+      await setImmediate();
+      await click('[data-room="全部"]');
+      assert.match(tile("light.study_desk"), /已关闭/);
+      assert.match(tile("light.living_ceiling"), /已开启/);
+    } finally {
+      Date.now = realNow;
+    }
+  });
 });
 
 describe("Bare category commands (#273)", () => {
@@ -1084,6 +1118,49 @@ describe("Bare category commands (#273)", () => {
     await click("#btn-undo");
     assert.match(tile("light.living_ceiling"), /已开启/);
     assert.match(tile("light.study_desk"), /已开启/);
+  });
+
+  it("keeps a room button per room id when two homes share a room name", async () => {
+    localStorage.setItem("menumijia.windows.settings.v2", JSON.stringify({
+      connectionMode: "demo",
+      hasCompletedOnboarding: true,
+    }));
+    const app = new MenuMijiaWindowsApp(element("#app"));
+    await setImmediate();
+    const light = (id: string, name: string, roomId: string): SmartDevice => ({
+      id,
+      name,
+      roomId,
+      roomName: "客厅",
+      model: "yeelink.light.lamp4",
+      isOnline: true,
+      kind: {
+        kind: "light",
+        entityId: `light.${id}`,
+        isOn: true,
+        brightnessPercent: 80,
+        colorTempKelvin: 4000,
+        minKelvin: 2700,
+        maxKelvin: 6500,
+        currentEffect: null,
+        availableEffects: [],
+      },
+    });
+    app.devices = [
+      light("light.cn_living", "客厅吸顶灯", "home-cn/ke_ting"),
+      light("light.de_living", "客厅吊灯", "home-de/ke_ting"),
+    ];
+    app.render();
+
+    const pills = Array.from(document.querySelectorAll<HTMLElement>('[data-room="客厅"]'));
+    assert.equal(pills.length, 2, "each room id needs its own button");
+    assert.ok(document.querySelector('[data-tile-id="light.cn_living"]'));
+    assert.ok(document.querySelector('[data-tile-id="light.de_living"]'));
+
+    pills[1]!.click();
+    await setImmediate();
+    assert.ok(document.querySelector('[data-tile-id="light.de_living"]'));
+    assert.equal(document.querySelector('[data-tile-id="light.cn_living"]'), null);
   });
 
   it("关灯 closes only the room the panel shows", async () => {

@@ -213,17 +213,20 @@ import { quickActions } from "./demo.js";
         <div class="cc-room-bar">
           <div class="cc-room-track">
           <div class="cc-room-scroll">
-            ${host.rooms
+            ${[{ id: null, name: t("全部") }, ...host.roomOptions]
               .map(
                 (room) => {
-                  const pressed = room === "全部" ? host.listCut.kind === "all" : host.selectedRoom === room;
+                  const pressed = room.id === null
+                    ? host.listCut.kind === "all"
+                    : host.listCut.kind === "room" && host.listCut.roomId === room.id;
                   return `
               <button
                 class="cc-room-pill ${pressed ? "is-active" : ""}"
-                data-room="${host.escapeHtml(room)}"
+                data-room="${host.escapeHtml(room.id === null ? "全部" : room.name)}"
+                ${room.id === null ? "" : `data-room-id="${host.escapeHtml(room.id)}"`}
                 aria-pressed="${pressed}"
               >
-                ${host.escapeHtml(room === "全部" ? t("全部") : room)}
+                ${host.escapeHtml(room.id === null ? t("全部") : room.name)}
               </button>
             `;
                 },
