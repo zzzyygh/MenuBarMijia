@@ -71,8 +71,16 @@ export class CameraLiveController {
     const dev = this.host.devices.find((d) => d.id === deviceId);
     if (!dev || dev.kind.kind !== "camera") return;
     // Hot resume: the modal was only hidden, so the bridge, relay and P2P
-    // session are still alive — just reveal it again.
-    if (this.activeLiveCameraId === deviceId && this.liveCameraHidden && this.liveCameraImgEl) {
+    // session are still alive — just reveal it again. While the frame pump is
+    // still waiting for its first JPEG there is no <img> to reuse yet, but the
+    // transport is running; renegotiating would stop the session it is using.
+    const frameTransportActive =
+      this.liveCameraAbort !== null && !this.liveCameraAbort.signal.aborted;
+    if (
+      this.activeLiveCameraId === deviceId &&
+      this.liveCameraHidden &&
+      (this.liveCameraImgEl !== null || frameTransportActive)
+    ) {
       this.liveCameraHidden = false;
       this.clearCameraKeepAlive();
       invokeTauriVoid("set_pin_popover", { pin: true });

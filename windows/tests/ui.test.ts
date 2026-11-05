@@ -2135,6 +2135,7 @@ describe("Smart camera support and live view (#97)", () => {
     bridgeCalls: Array<Record<string, unknown>>;
     frameSrcs: string[];
     p2pStarts: { count: number };
+    p2pStops: { count: number };
   }> {
     const camSpec = {
       type: "urn:miot-spec-v2:device:camera:0000A01C:chuangmi-81ac1:1",
@@ -2162,6 +2163,7 @@ describe("Smart camera support and live view (#97)", () => {
     const bridgeCalls: Array<Record<string, unknown>> = [];
     const frameSrcs: string[] = [];
     const p2pStarts = { count: 0 };
+    const p2pStops = { count: 0 };
     const invoke = async (name: string, args: Record<string, unknown> = {}): Promise<unknown> => {
       if (name === "start_xiaomi_camera_bridge") {
         bridgeCalls.push(args);
@@ -2214,6 +2216,7 @@ describe("Smart camera support and live view (#97)", () => {
           p2pStarts.count += 1;
           result = { code: 0, out: [] };
         } else if (payload.params?.aiid === 2) {
+          p2pStops.count += 1;
           result = { code: -1, out: [] };
         }
       }
@@ -2234,7 +2237,7 @@ describe("Smart camera support and live view (#97)", () => {
     app.cameraLive.cameraFrameRetryMs = options.retryMs;
     await waitFor(() => document.querySelector('[data-body-device="cam-1"]') !== null);
     await click('[data-body-device="cam-1"]');
-    return { bridgeCalls, frameSrcs, p2pStarts };
+    return { bridgeCalls, frameSrcs, p2pStarts, p2pStops };
   }
 
   it("shows a picture after one missed Xiaomi cloud frame without opening a second bridge", async () => {
@@ -2298,6 +2301,31 @@ describe("Smart camera support and live view (#97)", () => {
     await click("#btn-reload-camera-live");
     await waitFor(() => live.bridgeCalls.length === 2);
     assert.equal(live.p2pStarts.count, 2);
+  });
+
+  it("keeps the pending Xiaomi handshake alive when the live modal is reopened before the first frame", async () => {
+    const live = await openXiaomiCloudP2PCamera({
+      budgetMs: 5_000,
+      retryMs: 0,
+      frame: () => new Promise<string>(() => {}),
+    });
+    await waitFor(() => live.p2pStarts.count === 1 && live.frameSrcs.length >= 1);
+    const stopsBeforeReopen = live.p2pStops.count;
+    assert.ok(stopsBeforeReopen >= 1, "the first negotiation stops the stale session once");
+    const sheetVisible = () => {
+      const sheet = document.querySelector<HTMLElement>(".cc-camera-live-sheet");
+      return sheet !== null && sheet.closest<HTMLElement>(".cc-sheet-backdrop")?.style.display !== "none";
+    };
+    assert.equal(sheetVisible(), true);
+
+    await click("#btn-close-camera-live");
+    assert.equal(sheetVisible(), false);
+    await click('[data-body-device="cam-1"]');
+
+    assert.equal(sheetVisible(), true, "reopening must reveal the live modal");
+    assert.equal(live.p2pStops.count, stopsBeforeReopen, "reopening must not stop the session that is still starting");
+    assert.equal(live.p2pStarts.count, 1, "reopening must not negotiate a second P2P session");
+    assert.equal(live.bridgeCalls.length, 1, "reopening must reuse the running bridge");
   });
 });
 
