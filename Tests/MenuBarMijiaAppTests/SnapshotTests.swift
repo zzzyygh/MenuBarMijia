@@ -373,10 +373,7 @@ struct SnapshotTests {
         window.isReleasedWhenClosed = false
         window.appearance = NSAppearance(named: scheme == .dark ? .darkAqua : .aqua)
         window.contentView = hosting
-        window.layoutIfNeeded()
-        hosting.layoutSubtreeIfNeeded()
-        hosting.displayIfNeeded()
-        window.displayIfNeeded()
+        SnapshotWindow.prepareForCapture(window)
 
         guard let bitmap = NSBitmapImageRep(
             bitmapDataPlanes: nil,
@@ -531,5 +528,21 @@ private struct SnapshotFixture {
             UserDefaults.standard.removeObject(forKey: RoomPrefs.aliasesKey)
         }
         LayoutUIState.shared.resetForTesting()
+    }
+}
+
+/// Brings the offscreen window the snapshot harness captures into its final state.
+@MainActor
+enum SnapshotWindow {
+    /// Lays the window out, then takes keyboard focus away before drawing (#323). AppKit may hand
+    /// focus to the first focusable control (the header mic button) during layout or later, and a
+    /// focused control draws its ring into the bitmap; dropping focus after layout makes the
+    /// capture independent of that timing.
+    static func prepareForCapture(_ window: NSWindow) {
+        window.layoutIfNeeded()
+        window.contentView?.layoutSubtreeIfNeeded()
+        window.makeFirstResponder(nil)
+        window.contentView?.displayIfNeeded()
+        window.displayIfNeeded()
     }
 }
