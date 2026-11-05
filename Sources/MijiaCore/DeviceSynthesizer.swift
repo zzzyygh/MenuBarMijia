@@ -319,7 +319,13 @@ public enum DeviceSynthesizer {
                             ?? coverEnt.original_name
                             ?? rawDeviceName
                         let trackName = cleanDeviceName(rawTrackName, roomName: roomName, model: model)
-                        let trackEntities = [coverEnt] + nonCoverEntities
+                        let trackAux = auxiliaryEntities(
+                            for: coverEnt,
+                            allCovers: activeCovers,
+                            nonCoverEntities: nonCoverEntities,
+                            states: states
+                        )
+                        let trackEntities = [coverEnt] + trackAux
                         if let trackBuilt = applyingSafetyObservations(
                             buildSmartDevice(
                                 deviceId: trackId,
@@ -572,6 +578,92 @@ public enum DeviceSynthesizer {
     }
 
     // MARK: - Device Builders
+
+    private static func auxiliaryEntities(
+        for cover: HAEntityEntry,
+        allCovers: [HAEntityEntry],
+        nonCoverEntities: [HAEntityEntry],
+        states: [String: HAEntityState]
+    ) -> [HAEntityEntry] {
+        let coverTokensById: [String: Set<String>] = Dictionary(
+            uniqueKeysWithValues: allCovers.map { entry in
+                let stem = entry.entity_id.dropFirst("cover.".count).lowercased()
+                let tokens = Set(stem.split(separator: "_").map(String.init))
+                return (entry.entity_id, tokens)
+            }
+        )
+        let commonTokens: Set<String> = coverTokensById.values.reduce(into: coverTokensById.values.first ?? []) { acc, next in
+            acc.formIntersection(next)
+        }
+        let uniqueCoverTokens: [String: Set<String>] = coverTokensById.mapValues { $0.subtracting(commonTokens) }
+
+        func matches(_ candidateCover: HAEntityEntry, aux: HAEntityEntry) -> Bool {
+            let coverStem = candidateCover.entity_id.dropFirst("cover.".count).lowercased()
+            let auxStem = (aux.entity_id.split(separator: ".", maxSplits: 1).last ?? "").lowercased()
+            if !coverStem.isEmpty, auxStem.contains(coverStem) {
+                return true
+            }
+            if let distinguishing = uniqueCoverTokens[candidateCover.entity_id], !distinguishing.isEmpty {
+                let auxTokens = Set(auxStem.split(separator: "_").map(String.init))
+                if distinguishing.isSubset(of: auxTokens) {
+                    return true
+                }
+            }
+            if let coverUid = candidateCover.unique_id?.lowercased(), !coverUid.isEmpty,
+               let auxUid = aux.unique_id?.lowercased(), !auxUid.isEmpty,
+               auxUid.contains(coverUid) || coverUid.contains(auxUid) {
+                return true
+            }
+            let coverLabel = (
+                candidateCover.name
+                ?? states[candidateCover.entity_id]?.attributes["friendly_name"]?.stringValue
+                ?? candidateCover.original_name
+            )?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ?? ""
+            let auxLabel = (
+                aux.name
+                ?? states[aux.entity_id]?.attributes["friendly_name"]?.stringValue
+                ?? aux.original_name
+            )?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ?? ""
+            if !coverLabel.isEmpty, !auxLabel.isEmpty, auxLabel.contains(coverLabel) {
+                return true
+            }
+            return false
+        }
+
+        let batteryCount = nonCoverEntities.filter { entity in
+            guard entity.entity_id.hasPrefix("sensor.") else { return false }
+            if let deviceClass = states[entity.entity_id]?.attributes["device_class"]?.stringValue {
+                return deviceClass == "battery"
+            }
+            return entity.entity_id.contains("battery_level")
+        }.count
+
+        var matched: [HAEntityEntry] = []
+        var shared: [HAEntityEntry] = []
+        for aux in nonCoverEntities {
+            let matchingCovers = allCovers.filter { matches($0, aux: aux) }
+            if matchingCovers.count == 1 {
+                if matchingCovers[0].entity_id == cover.entity_id {
+                    matched.append(aux)
+                }
+                continue
+            }
+            if matchingCovers.contains(where: { $0.entity_id == cover.entity_id }) {
+                matched.append(aux)
+                continue
+            }
+            if matchingCovers.isEmpty {
+                let isBattery = aux.entity_id.hasPrefix("sensor.")
+                    && (states[aux.entity_id]?.attributes["device_class"]?.stringValue == "battery"
+                        || aux.entity_id.contains("battery_level"))
+                if isBattery && batteryCount > 1 {
+                    continue
+                }
+                shared.append(aux)
+            }
+        }
+        return matched + shared
+    }
 
     private static func applyingSafetyObservations(
         _ built: SmartDevice?,

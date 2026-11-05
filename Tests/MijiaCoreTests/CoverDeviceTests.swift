@@ -374,6 +374,8 @@ struct CoverDeviceTests {
         let entities = [
             HAEntityEntry(entity_id: "cover.drape", device_id: "ha_dual", name: "卧室布帘"),
             HAEntityEntry(entity_id: "cover.sheer", device_id: "ha_dual", name: "卧室纱帘"),
+            HAEntityEntry(entity_id: "sensor.drape_battery", device_id: "ha_dual", name: "卧室布帘 电量"),
+            HAEntityEntry(entity_id: "sensor.sheer_battery", device_id: "ha_dual", name: "卧室纱帘 电量"),
         ]
         let states: [String: HAEntityState] = [
             "cover.drape": HAEntityState(
@@ -385,6 +387,16 @@ struct CoverDeviceTests {
                 entityId: "cover.sheer",
                 state: "open",
                 attributes: ["device_class": .string("curtain"), "current_position": .number(80), "supported_features": .number(15)]
+            ),
+            "sensor.drape_battery": HAEntityState(
+                entityId: "sensor.drape_battery",
+                state: "72",
+                attributes: ["device_class": .string("battery")]
+            ),
+            "sensor.sheer_battery": HAEntityState(
+                entityId: "sensor.sheer_battery",
+                state: "41",
+                attributes: ["device_class": .string("battery")]
             ),
         ]
         let home = DeviceSynthesizer.synthesize(
@@ -404,8 +416,14 @@ struct CoverDeviceTests {
             #expect(drapeSpec.openDescription == nil)
             #expect(drapeSpec.closeDescription == nil)
             #expect(drapeSpec.pauseDescription == nil)
+            #expect(drapeSpec.batteryPercent == 72)
         } else {
             Issue.record("drape did not synthesize as .cover")
+        }
+        if case .cover(let sheerSpec) = sheer.kind {
+            #expect(sheerSpec.batteryPercent == 41)
+        } else {
+            Issue.record("sheer did not synthesize as .cover")
         }
 
         let unsupported = UnsupportedDeviceCollector.homeAssistant(
