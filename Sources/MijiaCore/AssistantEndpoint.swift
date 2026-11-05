@@ -54,9 +54,10 @@ public struct AssistantEndpoint: Equatable, Sendable {
         return Self.ipv4Octets(host)?.first == 127
     }
 
-    /// Loopback, private LAN (RFC 1918), link-local, CGNAT/Tailscale (100.64.0.0/10), IPv6 ULA/link-local, or mDNS `.local` names.
+    /// Loopback, private LAN (RFC 1918), link-local, CGNAT/Tailscale (100.64.0.0/10), IPv6 ULA/link-local,
+    /// `.local`/`.lan`/`.home.arpa`/`.internal` names, or a dotless single-label host such as `homeassistant`.
     public var isLocalNetwork: Bool {
-        if isLoopback || host.hasSuffix(".local") {
+        if isLoopback || Self.localHostSuffixes.contains(where: { host.hasSuffix($0) }) {
             return true
         }
         if let octets = Self.ipv4Octets(host) {
@@ -72,8 +73,10 @@ public struct AssistantEndpoint: Equatable, Sendable {
             return host.hasPrefix("fc") || host.hasPrefix("fd")
                 || host.hasPrefix("fe8") || host.hasPrefix("fe9") || host.hasPrefix("fea") || host.hasPrefix("feb")
         }
-        return false
+        return !host.contains(".")
     }
+
+    private static let localHostSuffixes = [".local", ".lan", ".home.arpa", ".internal"]
 
     /// API keys only travel over https, or over plain http that stays on the local network.
     public var allowsSendingSecrets: Bool {

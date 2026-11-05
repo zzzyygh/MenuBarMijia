@@ -11,6 +11,11 @@ struct AssistantEndpointTests {
         let keyTransport: [TransportCase]
     }
 
+    private struct LocalNetworkGolden: Decodable {
+        struct Case: Decodable { let host: String; let isLocalNetwork: Bool }
+        let cases: [Case]
+    }
+
     private static func locateFixture(_ relativePath: String) throws -> URL {
         var dir = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
         for _ in 0..<8 {
@@ -39,6 +44,18 @@ struct AssistantEndpointTests {
         for item in golden.keyTransport {
             let allows = AssistantConfig(baseURL: item.url, model: "m", apiKey: "k").allowsSendingAPIKey
             #expect(allows == item.allowsKey, "\(item.url)")
+        }
+    }
+
+    @Test("Shared local_network_endpoint_golden.json: LAN detection matches Windows")
+    func localNetworkGoldenParity() throws {
+        let data = try Data(contentsOf: Self.locateFixture("Tests/Fixtures/local_network_endpoint_golden.json"))
+        let golden = try JSONDecoder().decode(LocalNetworkGolden.self, from: data)
+        #expect(golden.cases.count >= 50)
+        for item in golden.cases {
+            let raw = item.host.contains(":") ? "http://[\(item.host)]" : "http://\(item.host)"
+            let endpoint = try #require(AssistantEndpoint(raw))
+            #expect(endpoint.isLocalNetwork == item.isLocalNetwork, "\(item.host)")
         }
     }
 

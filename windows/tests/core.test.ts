@@ -28,7 +28,9 @@ import {
   deviceHeadInstruction,
   endpointAllowsSendingSecrets,
   inferAssistantPreset,
+  isLocalNetworkEndpoint,
   IntentValidator,
+  parseAssistantEndpoint,
   partitionHabitReceipt,
   resolveGrokBallEmotion,
 } from "../src/core/assistant.js";
@@ -1847,6 +1849,20 @@ describe("AI provider detection and key transport (#19)", () => {
       availableEffects: ["Day", "Night"],
     },
   };
+
+  it("matches the cross-platform local network corpus shared with MijiaCoreTests", () => {
+    const raw = readFileSync(resolve(process.cwd(), "../Tests/Fixtures/local_network_endpoint_golden.json"), "utf8");
+    const golden = JSON.parse(raw) as {
+      cases: Array<{ host: string; isLocalNetwork: boolean }>;
+    };
+    assert.ok(golden.cases.length >= 50);
+    for (const item of golden.cases) {
+      const url = item.host.includes(":") ? `http://[${item.host}]` : `http://${item.host}`;
+      const endpoint = parseAssistantEndpoint(url);
+      assert.ok(endpoint, item.host);
+      assert.equal(isLocalNetworkEndpoint(endpoint), item.isLocalNetwork, item.host);
+    }
+  });
 
   it("matches the cross-platform provider corpus shared with MijiaCoreTests", () => {
     const raw = readFileSync(resolve(process.cwd(), "../Tests/Fixtures/provider_golden.json"), "utf8");

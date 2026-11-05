@@ -79,7 +79,9 @@ if ! search_quiet 'defaultHost = ""' Sources/MijiaCore/LGWebOSClient.swift; then
     exit 1
 fi
 
-if search_matches '10\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}' Sources/ Tests/ || search_matches 'localhost:3425' Sources/; then
+# 共享 golden 里的 10/8 是测试向量，不是个人局域网地址；只豁免这一份 fixture。
+lan_ip_hits="$(search_matches '10\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}' Sources/ Tests/ | grep -v '^Tests/Fixtures/local_network_endpoint_golden.json:' || true)"
+if [ -n "$lan_ip_hits" ] || search_matches 'localhost:3425' Sources/; then
     echo "❌ 检测到硬编码的个人局域网 IP 或本机调试端口 (localhost:3425)，请移除！"
     exit 1
 fi
