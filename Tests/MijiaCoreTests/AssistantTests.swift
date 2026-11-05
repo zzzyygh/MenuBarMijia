@@ -123,7 +123,10 @@ struct AssistantTests {
         #expect(Self.parse("打开空调")?.intents == [
             DeviceIntent(targetId: "dev_living_ac", operation: .power(true))
         ])
-        #expect(Self.parse("关闭电暖器")?.intents == [
+        // The only heater is off, so a category-only close answers instead of switching it (#273).
+        #expect(Self.parse("关闭电暖器")?.intents.isEmpty == true)
+        #expect(Self.parse("关闭电暖器")?.reply == "电暖器都关着")
+        #expect(Self.parse("关闭次卧电暖器")?.intents == [
             DeviceIntent(targetId: "dev_guest_heater", operation: .power(false))
         ])
         // 卧室 tolerantly maps to 主卧

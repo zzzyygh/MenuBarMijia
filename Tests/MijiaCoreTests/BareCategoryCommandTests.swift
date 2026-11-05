@@ -46,6 +46,17 @@ struct BareCategoryCommandTests {
         kind: .fan(FanSpec(entityId: "fan.purifier", isOn: true, availablePresetModes: ["Auto"]))
     )
 
+    static func fan(_ id: String, _ name: String, room: String, isOn: Bool) -> SmartDevice {
+        SmartDevice(
+            id: id, name: name, roomId: room, roomName: room,
+            model: "dmaker.fan.p5", isOnline: true,
+            kind: .fan(FanSpec(
+                entityId: "fan.\(id)", isOn: isOn, presetMode: "Level1",
+                availablePresetModes: ["Level1", "Level2", "Level3"], isOscillating: false
+            ))
+        )
+    }
+
     static let devices = [
         studyCeiling, studyDesk, bedroomLamp, kitchenLight,
         livingAC, bedroomAC, livingFan, purifier
@@ -166,6 +177,30 @@ struct BareCategoryCommandTests {
             "全部关掉"
         ])
         #expect(plan.suggestions.last?.intents.count == 2)
+    }
+
+    @Test("A category word that is also a room-stripped device name still offers candidates")
+    func categoryWordCollidesWithDeviceNames() throws {
+        let livingAC = Self.climate("dev_living_ac", "客厅空调", room: "客厅", isOn: true)
+        let bedroomAC = Self.climate("dev_bedroom_ac", "主卧空调", room: "主卧", isOn: true)
+        let ac = try #require(LocalIntentParser.parse("关空调", devices: [livingAC, bedroomAC], scenes: []))
+        #expect(ac.intents.isEmpty)
+        #expect(ac.suggestions.map(\.title) == ["关闭客厅空调", "关闭主卧空调", "全部关掉"])
+        #expect(ac.reply == "开着：客厅空调、主卧空调。请说出房间或设备名")
+
+        let livingFan = Self.fan("dev_living_fan", "客厅风扇", room: "客厅", isOn: true)
+        let bedroomFan = Self.fan("dev_bedroom_fan", "主卧风扇", room: "主卧", isOn: true)
+        let fan = try #require(LocalIntentParser.parse("关风扇", devices: [livingFan, bedroomFan], scenes: []))
+        #expect(fan.intents.isEmpty)
+        #expect(fan.suggestions.map(\.title) == ["关闭客厅风扇", "关闭主卧风扇", "全部关掉"])
+    }
+
+    @Test("关空调 ignores an off device whose stripped name is the category word")
+    func offDeviceSharingCategoryWordIsIgnored() throws {
+        let offAC = Self.climate("dev_living_ac", "客厅空调", room: "客厅", isOn: false)
+        let onAC = Self.climate("dev_bedroom_ac", "主卧挂机", room: "主卧", isOn: true)
+        let plan = try #require(LocalIntentParser.parse("关空调", devices: [offAC, onAC], scenes: []))
+        #expect(plan.intents == [DeviceIntent(targetId: "dev_bedroom_ac", operation: .power(false))])
     }
 
     @Test("English bare-category closes use the same room rule")

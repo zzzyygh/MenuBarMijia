@@ -365,7 +365,10 @@ public enum LocalIntentParser {
             full[dev.name, default: []].append(dev.id)
             if !dev.roomName.isEmpty, dev.name.hasPrefix(dev.roomName) {
                 let stripped = String(dev.name.dropFirst(dev.roomName.count))
-                if stripped.count >= 2 { base[stripped, default: []].append(dev.id) }
+                // 「关空调」 is a category command even when a device is literally named 客厅空调 (#273).
+                if stripped.count >= 2, categoryWords[stripped] == nil {
+                    base[stripped, default: []].append(dev.id)
+                }
             }
         }
         var phrases: [(String, PhraseMatch)] = full.map { ($0.key, .full($0.value)) }

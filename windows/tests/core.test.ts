@@ -1336,6 +1336,78 @@ describe("LocalIntentParser, DelayPhrase, UndoPhrase, and ModelIntentResolver", 
     ]);
   });
 
+  it("keeps a category word a category command when devices are named room + word", () => {
+    const climate = (id: string, name: string, roomName: string, isOn: boolean): SmartDevice => ({
+      id,
+      name,
+      roomId: roomName,
+      roomName,
+      model: "xiaomi.aircondition.mt0",
+      isOnline: true,
+      kind: {
+        kind: "climate",
+        entityId: `climate.${id}`,
+        isOn,
+        hvacMode: isOn ? "cool" : "off",
+        availableModes: ["off", "cool", "heat"],
+        targetTemperature: 24,
+        currentTemperature: null,
+        minTemp: 16,
+        maxTemp: 30,
+        step: 1,
+        fanMode: null,
+        availableFanModes: [],
+      },
+    });
+    const bothOn = LocalIntentParser.parse(
+      "关空调",
+      [climate("ac_living", "客厅空调", "客厅", true), climate("ac_bed", "主卧空调", "主卧", true)],
+      [],
+    );
+    assert.ok(bothOn);
+    assert.deepEqual(bothOn.intents, []);
+    assert.deepEqual(
+      bothOn.suggestions.map((suggestion) => suggestion.title),
+      ["关闭客厅空调", "关闭主卧空调", "全部关掉"],
+    );
+
+    const onlyBedroomOn = LocalIntentParser.parse(
+      "关空调",
+      [climate("ac_living", "客厅空调", "客厅", false), climate("ac_bed", "主卧挂机", "主卧", true)],
+      [],
+    );
+    assert.ok(onlyBedroomOn);
+    assert.deepEqual(onlyBedroomOn.intents, [
+      { targetId: "ac_bed", operation: { kind: "power", isOn: false } },
+    ]);
+
+    const fan = (id: string, name: string, roomName: string): SmartDevice => ({
+      id,
+      name,
+      roomId: roomName,
+      roomName,
+      model: "dmaker.fan.p5",
+      isOnline: true,
+      kind: {
+        kind: "fan",
+        entityId: `fan.${id}`,
+        isOn: true,
+        percentage: null,
+        presetMode: "Level1",
+        availablePresetModes: ["Level1", "Level2", "Level3"],
+        isOscillating: false,
+      },
+    });
+    const fans = LocalIntentParser.parse(
+      "关风扇",
+      [fan("fan_living", "客厅风扇", "客厅"), fan("fan_bed", "主卧风扇", "主卧")],
+      [],
+    );
+    assert.ok(fans);
+    assert.deepEqual(fans.intents, []);
+    assert.equal(fans.suggestions.length, 3);
+  });
+
   it("resolves Jev /v1/systemone multi-choice payload", async () => {
     const resolver = new ModelIntentResolver(
       {
