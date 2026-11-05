@@ -290,6 +290,36 @@ struct CurtainDeviceTests {
         #expect(merged.home.devices.allSatisfy { if case .cover = $0.kind { true } else { false } })
     }
 
+    @Test("An HA card sharing only the dual-track motor's MAC is not a third card")
+    func haMacOnlyDuplicateIsNotAThirdCard() throws {
+        let (drape, lace, _) = try dualTrackHome()
+        var miHome = SynthesizedHome(devices: [drape, lace])
+        miHome.deviceIdentities = [
+            drape.id: DeviceSourceIdentity(
+                dids: ["dual1"], macAddresses: ["aabbccddeeff"], model: Self.dualModel,
+                name: drape.name, roomName: drape.roomName, kindTag: .cover
+            ),
+            lace.id: DeviceSourceIdentity(
+                dids: ["dual1"], macAddresses: ["aabbccddeeff"], model: Self.dualModel,
+                name: lace.name, roomName: lace.roomName, kindTag: .cover
+            ),
+        ]
+
+        let haSensor = SmartDevice(
+            id: "ha-mac", name: "窗帘电量", roomId: "living", roomName: "客厅",
+            model: "sensor.battery", isOnline: true,
+            kind: .sensor(SensorSpec(battery: 80))
+        )
+        var haHome = SynthesizedHome(devices: [haSensor])
+        haHome.deviceIdentities = [haSensor.id: DeviceSourceIdentity(
+            macAddresses: ["AA-BB-CC-DD-EE-FF"], model: haSensor.model,
+            name: haSensor.name, roomName: haSensor.roomName, kindTag: .sensor
+        )]
+
+        let merged = DeviceDeduplicator.merge(homeAssistant: haHome, xiaomiCloud: miHome)
+        #expect(Set(merged.home.devices.map(\.id)) == ["dual1.s2", "dual1.s3"])
+    }
+
     // MARK: Dual source
 
     @Test("A curtain reached through both Mijia and Home Assistant keeps one card")

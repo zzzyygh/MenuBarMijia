@@ -99,13 +99,11 @@ public enum DeviceDeduplicator {
                     )
                 )
             } else {
-                // A Mi record split into several cards (a dual-track curtain) shares its did with
-                // every track, so none of them pairs 1:1 with the HA copy. That copy is still the
-                // same physical device and must not appear as an extra card beside the tracks.
+                // A Mi record split into several cards (a dual-track curtain) shares its did and
+                // MAC with every track, so none of them pairs 1:1 with the HA copy. That copy is
+                // still the same physical device and must not appear as an extra card beside them.
                 if let haIdentity = ha.identity,
-                   miCandidates.contains(where: { candidate in
-                       candidate.identity.map { sharesDID(haIdentity, $0) } ?? false
-                   }) {
+                   isAlreadyShownByMiTracks(haIdentity, in: miCandidates) {
                     continue
                 }
                 draftCards.append(
@@ -568,6 +566,18 @@ public enum DeviceDeduplicator {
 
     private static func sharesMAC(_ a: DeviceSourceIdentity, _ b: DeviceSourceIdentity) -> Bool {
         !Set(a.macAddresses).isDisjoint(with: b.macAddresses)
+    }
+
+    /// True when one physical Mi device already shows as several cards (a dual-track curtain's
+    /// tracks), which is why the 1:1 pairing passes above never matched the HA copy. A MAC
+    /// shared by two or more Mi cards is that motor's hardware id, not a lone device.
+    private static func isAlreadyShownByMiTracks(
+        _ haIdentity: DeviceSourceIdentity,
+        in miCandidates: [Candidate]
+    ) -> Bool {
+        let identities = miCandidates.compactMap(\.identity)
+        if identities.contains(where: { sharesDID(haIdentity, $0) }) { return true }
+        return identities.filter { sharesMAC(haIdentity, $0) }.count >= 2
     }
 
     private static func pairByFallbackGroups(
