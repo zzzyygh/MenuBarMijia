@@ -84,6 +84,25 @@ struct HAPlaintextConsentTests {
         store.signOutAndRevokeAll()
         #expect(!HAPlaintextConsent.isApproved(Self.publicHTTP, defaults: store.userDefaults))
     }
+
+    @Test("Demo mode drops the question and ignores consent, so 仍然连接 cannot start the live backends")
+    @MainActor
+    func demoModeSupersedesPrompt() async throws {
+        let store = HomeStore(provider: MockHomeProvider(snapshot: SynthesizedHome()), defaultsSuiteName: "test.ha.plaintext.demo.\(UUID().uuidString)")
+        store.serverURLString = Self.publicHTTP
+        store.askHAPlaintext(Self.publicHTTP)
+        #expect(store.haPlaintextPrompt == .asking(Self.publicHTTP))
+
+        store.switchBackend(.demo)
+        #expect(store.haPlaintextPrompt == nil)
+        store.askHAPlaintext(Self.publicHTTP)
+        #expect(store.haPlaintextPrompt == nil, "a late callback from the replaced provider is ignored in demo mode")
+
+        store.haPlaintextPrompt = .asking(Self.publicHTTP)
+        store.allowHAPlaintext()
+        #expect(store.provider is DemoHomeProvider)
+        #expect(!HAPlaintextConsent.isApproved(Self.publicHTTP, defaults: store.userDefaults))
+    }
 }
 
 final class ReportedURLs: @unchecked Sendable {

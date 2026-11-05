@@ -429,14 +429,15 @@ extension HomeStore {
     /// Ignores a late callback from a provider that was already replaced, and keeps a declined
     /// answer so a refresh does not ask again until the address or the provider changes.
     func askHAPlaintext(_ url: String) {
-        guard HAWebSocketProvider.normalizeBaseURL(url) == HAWebSocketProvider.normalizeBaseURL(serverURLString),
+        guard homeBackend != .demo,
+              HAWebSocketProvider.normalizeBaseURL(url) == HAWebSocketProvider.normalizeBaseURL(serverURLString),
               haPlaintextPrompt != .declined(url) else { return }
         haPlaintextPrompt = .asking(url)
     }
 
     /// 仍然连接: remembers consent for this address only, then connects.
     public func allowHAPlaintext() {
-        guard let url = haPlaintextPrompt?.address else { return }
+        guard homeBackend != .demo, let url = haPlaintextPrompt?.address else { return }
         haPlaintextPrompt = nil
         HAPlaintextConsent.approve(url, defaults: userDefaults)
         rebuildLiveProvider()
@@ -539,6 +540,7 @@ extension HomeStore {
         if backend == .demo {
             eventTask?.cancel()
             shutdownCurrentProvider()
+            haPlaintextPrompt = nil
             // Strictly offline: stop any LAN TV and update work started by the previous backend (#47).
             if let lgClient = lgWebOSClient {
                 Task { await lgClient.stop() }
