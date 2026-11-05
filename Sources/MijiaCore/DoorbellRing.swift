@@ -29,9 +29,10 @@ public struct DoorbellRing: Equatable, Sendable {
     }
 }
 
-/// What the app should do with a ring after the user's settings and the lock screen are applied.
-public struct DoorbellPopup: Equatable, Sendable {
-    public var deviceId: String
+/// What the app does for one press after the user's settings and the lock screen are applied.
+public struct DoorbellResponse: Equatable, Sendable {
+    /// The camera card to open, or nil when only the chime should play.
+    public var cameraDeviceId: String?
     public var playsChime: Bool
     public var dismissAfter: Duration
 }

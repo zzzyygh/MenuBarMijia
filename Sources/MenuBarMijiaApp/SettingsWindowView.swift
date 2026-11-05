@@ -447,7 +447,6 @@ private struct GeneralSettingsTab: View {
                         title: L10n.tr("门铃响时播放提示音", "Play a chime when the doorbell rings"),
                         isOn: Binding(get: { store.doorbellChime }, set: { store.doorbellChime = $0 })
                     )
-                    .disabled(!store.doorbellAutoPopup)
 
                     HStack(spacing: 6) {
                         Text(L10n.tr("门铃画面自动收起", "Close the doorbell view after"))

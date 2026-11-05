@@ -66,6 +66,8 @@ public final class CameraLivePanelController: NSObject, NSWindowDelegate {
     private var mjpegSession: URLSession?
     private var closeReleaseTask: Task<Void, Never>?
     private var doorbellDismissTask: Task<Void, Never>?
+    /// The window sits where a ring put it, so closing it must not overwrite the user's saved position.
+    private var isDoorbellPlacement = false
     private var isClosing = false
     private let snapshotSession: URLSession = {
         let cfg = URLSessionConfiguration.ephemeral
@@ -84,27 +86,27 @@ public final class CameraLivePanelController: NSObject, NSWindowDelegate {
         store.onOpenCameraLiveView = { [weak self] device in
             self?.present(device: device)
         }
-        store.onDoorbellPopup = { [weak self] popup in
-            self?.presentDoorbell(popup)
+        store.onDoorbellRing = { [weak self] response in
+            self?.respondToDoorbell(response)
         }
     }
 
-    /// Opens the ringing doorbell's camera at the top right and closes it again after the user's
-    /// delay, unless they closed it, switched camera or moved it to picture-in-picture first (#308).
-    private func presentDoorbell(_ popup: DoorbellPopup) {
-        guard let store else { return }
+    /// Plays the chime and opens the ringing doorbell's camera at the top right (#308). A window
+    /// the user already had open is never moved or closed; a window the ring opened closes after
+    /// the user's delay unless they reopened it, switched camera or went picture-in-picture.
+    private func respondToDoorbell(_ response: DoorbellResponse) {
+        if response.playsChime { NSSound(named: "Glass")?.play() }
+        guard let store, let deviceId = response.cameraDeviceId else { return }
         let wasVisible = isVisible
-        if popup.playsChime { NSSound(named: "Glass")?.play() }
-        store.openCameraLiveView(popup.deviceId)
-        guard activeDeviceId == popup.deviceId, let panel = panelWindow, panel.isVisible else { return }
-        if !wasVisible {
-            panel.setFrame(Self.topRightFrame(for: panel.frame.size), display: true)
-        }
-        doorbellDismissTask?.cancel()
+        store.openCameraLiveView(deviceId)
+        guard !wasVisible, activeDeviceId == deviceId, let panel = panelWindow, panel.isVisible else { return }
+        panel.setFrame(Self.topRightFrame(for: panel.frame.size), display: true)
+        isDoorbellPlacement = true
         doorbellDismissTask = Task { @MainActor [weak self] in
-            try? await Task.sleep(for: popup.dismissAfter)
-            guard !Task.isCancelled, let self, self.isVisible, self.activeDeviceId == popup.deviceId,
-                  !self.isPictureInPictureActive else { return }
+            try? await Task.sleep(for: response.dismissAfter)
+            guard !Task.isCancelled, let self else { return }
+            self.doorbellDismissTask = nil
+            guard self.isVisible, self.activeDeviceId == deviceId, !self.isPictureInPictureActive else { return }
             self.closePanel()
         }
     }
@@ -127,6 +129,9 @@ public final class CameraLivePanelController: NSObject, NSWindowDelegate {
         guard let store else { return }
         closeReleaseTask?.cancel()
         closeReleaseTask = nil
+        doorbellDismissTask?.cancel()
+        doorbellDismissTask = nil
+        isDoorbellPlacement = false
         if isPictureInPictureActive {
             pictureInPicture?.stop()
         }
@@ -179,9 +184,10 @@ public final class CameraLivePanelController: NSObject, NSWindowDelegate {
         doorbellDismissTask?.cancel()
         doorbellDismissTask = nil
         setURLFieldActive(false)
-        if let frame = panelWindow?.frame {
+        if !isDoorbellPlacement, let frame = panelWindow?.frame {
             UserDefaults.standard.set(NSStringFromRect(frame), forKey: Self.frameStorageKey)
         }
+        isDoorbellPlacement = false
         let deviceId = activeDeviceId
         let store = self.store
         stopStreamTasks()
@@ -235,7 +241,7 @@ public final class CameraLivePanelController: NSObject, NSWindowDelegate {
             if pip.isActive, !wasActive {
                 // The system PiP window replaces the floating panel; the stream stays live.
                 self.setURLFieldActive(false)
-                if let frame = self.panelWindow?.frame {
+                if !self.isDoorbellPlacement, let frame = self.panelWindow?.frame {
                     UserDefaults.standard.set(NSStringFromRect(frame), forKey: Self.frameStorageKey)
                 }
                 self.panelWindow?.orderOut(nil)

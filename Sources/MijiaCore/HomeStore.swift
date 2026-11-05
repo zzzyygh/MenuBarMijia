@@ -182,9 +182,8 @@ public final class HomeStore {
 
     /// Recent doorbell presses, newest first, including ones that did not open a window (#308).
     public internal(set) var recentDoorbellRings: [DoorbellRing] = []
-    var handledDoorbellRingKeys: Set<String> = []
-    /// Installed by the app to open the live camera window for a ring.
-    public var onDoorbellPopup: (@MainActor (DoorbellPopup) -> Void)?
+    /// Installed by the app to play the chime and open the live camera window for a ring.
+    public var onDoorbellRing: (@MainActor (DoorbellResponse) -> Void)?
 
     /// Refuse user-initiated device control while the Mac screen is locked (#143). Defaults on:
     /// the only paths that can still fire while locked are external ones (URL links, App Intents,

@@ -69,7 +69,7 @@ struct DoorbellRingTests {
         let store = HomeStore(provider: MockHomeProvider(snapshot: SynthesizedHome()), defaultsSuiteName: "test.doorbell.\(UUID().uuidString)")
         store.devices = [camera]
         let log = PopupLog()
-        store.onDoorbellPopup = { log.items.append($0) }
+        store.onDoorbellRing = { log.items.append($0) }
         return (store, log)
     }
 
@@ -88,14 +88,25 @@ struct DoorbellRingTests {
         store.doorbellChime = true
         let next = DoorbellRing(deviceId: "door-device", entityId: "event.door_ring", firedAt: "2026-11-05T01:10:00.000+00:00")
         store.handleDoorbellRing(next)
-        #expect(log.items == [DoorbellPopup(deviceId: "door-device", playsChime: true, dismissAfter: .seconds(60))])
+        #expect(log.items == [DoorbellResponse(cameraDeviceId: "door-device", playsChime: true, dismissAfter: .seconds(60))])
 
         store.handleDoorbellRing(next)
         #expect(log.items.count == 1, "the same press never opens the window twice, even after it was closed")
 
         store.doorbellAutoPopup = false
+        store.doorbellChime = false
         store.handleDoorbellRing(DoorbellRing(deviceId: "door-device", entityId: "event.door_ring", firedAt: "2026-11-05T01:20:00.000+00:00"))
         #expect(log.items.count == 1)
+    }
+
+    @Test("The chime is its own switch: it plays without the camera, and on a locked screen")
+    @MainActor
+    func chimeIsIndependent() {
+        let (store, log) = Self.store()
+        store.doorbellChime = true
+        store.setScreenLocked(true)
+        store.handleDoorbellRing(DoorbellRing(deviceId: "door-device", entityId: "event.door_ring", firedAt: Self.second))
+        #expect(log.items == [DoorbellResponse(cameraDeviceId: nil, playsChime: true, dismissAfter: .seconds(60))])
     }
 
     @Test("While the screen is locked a press is only recorded")
@@ -133,5 +144,5 @@ struct DoorbellRingTests {
 
 @MainActor
 final class PopupLog {
-    var items: [DoorbellPopup] = []
+    var items: [DoorbellResponse] = []
 }
