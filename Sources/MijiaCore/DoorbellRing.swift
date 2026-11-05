@@ -17,11 +17,10 @@ public struct DoorbellRing: Equatable, Sendable {
     /// Identifies this press; the same press is handled at most once.
     public var key: String { "\(entityId)@\(firedAt)" }
 
-    /// A changed timestamp on a doorbell event entity. `unknown`/`unavailable` are not presses.
-    static func isRing(_ new: HAEntityState, previous: HAEntityState?) -> Bool {
-        isDoorbellEvent(new)
-            && !["unknown", "unavailable", ""].contains(new.state)
-            && new.state != previous?.state
+    /// The press timestamp a doorbell event entity reports, or nil for `unknown`/`unavailable`.
+    static func timestamp(_ state: HAEntityState) -> String? {
+        guard isDoorbellEvent(state), !["unknown", "unavailable", ""].contains(state.state) else { return nil }
+        return state.state
     }
 
     static func isDoorbellEvent(_ state: HAEntityState) -> Bool {
