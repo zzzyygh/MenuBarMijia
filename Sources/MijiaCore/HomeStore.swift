@@ -262,12 +262,24 @@ public final class HomeStore {
         }
     }
 
+    /// The app injects its real login-item adapter here. Core owns the onboarding rule, the app
+    /// owns the ServiceManagement call (#281, ADR-0003).
+    public var launchAtLoginSystem: LaunchAtLoginSystem?
+
     /// Last observed `SMAppService` state. Never persisted, so Settings cannot show a remembered
     /// preference as the system's real state (#281).
     public var launchAtLoginStatus: LaunchAtLoginStatus = .notRegistered
 
-    /// Ephemeral result of the last register/unregister attempt (#281).
-    public var launchAtLoginRegistrationFailed: Bool = false
+    /// Result of the last register/unregister attempt. Persisted so the manual hint survives a
+    /// relaunch until macOS reports the item enabled (#281).
+    public var launchAtLoginRegistrationFailed: Bool = false {
+        didSet {
+            userDefaults.set(
+                launchAtLoginRegistrationFailed,
+                forKey: Self.launchAtLoginRegistrationFailedKey
+            )
+        }
+    }
 
     /// Steps the guide has seen the user try (#180). Persisted so the checkmarks survive a relaunch.
     /// Connecting is deliberately not stored here: it is derived from the live connection state.
@@ -308,7 +320,13 @@ public final class HomeStore {
         onboardingPresentation == .dashboardChecklist
     }
 
+    /// A genuine first completion applies the guide's launch-at-login checkbox. Reopening the guide
+    /// or closing an old install's checklist must not register anything by itself (#281).
     public func completeOnboarding() {
+        if !hasCompletedOnboarding, let launchAtLoginSystem {
+            LaunchAtLoginCoordinator(system: launchAtLoginSystem, store: self)
+                .applyOnboardingChoiceIfNeeded()
+        }
         hasCompletedOnboarding = true
         isShowingOnboarding = false
     }
@@ -628,6 +646,7 @@ public final class HomeStore {
         self.launchAtLoginOnboardingChoice = boolOrDefaultTrue(Self.launchAtLoginOnboardingChoiceKey)
         self.hasAppliedLaunchAtLoginOnboardingChoice = ud.bool(forKey: Self.launchAtLoginChoiceAppliedKey)
         self.hasDismissedLaunchAtLoginSuggestion = ud.bool(forKey: Self.launchAtLoginSuggestionDismissedKey)
+        self.launchAtLoginRegistrationFailed = ud.bool(forKey: Self.launchAtLoginRegistrationFailedKey)
         self.onboardingMilestones = Set(
             (ud.stringArray(forKey: Self.onboardingMilestonesKey) ?? [])
                 .compactMap(OnboardingMilestone.init(rawValue:))

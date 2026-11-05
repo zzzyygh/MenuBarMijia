@@ -123,7 +123,6 @@ public struct OnboardingGuideView: View {
             .help(L10n.tr("切换为英文界面 / Switch to English", "Switch to Chinese / 切换为中文界面"))
 
             Button(L10n.tr("跳过", "Skip")) {
-                launchAtLogin.applyOnboardingChoiceIfNeeded()
                 withAnimation(AppleMotion.snappySpring) {
                     store.completeOnboarding()
                 }
@@ -719,7 +718,6 @@ public struct OnboardingGuideView: View {
                 if !trimmedKey.isEmpty || selectedPreset != currentPreset {
                     persistOnboardingAssistantDraft()
                 }
-                launchAtLogin.applyOnboardingChoiceIfNeeded()
                 withAnimation(AppleMotion.snappySpring) {
                     store.completeOnboarding()
                 }

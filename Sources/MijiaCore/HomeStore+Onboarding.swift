@@ -6,6 +6,7 @@ extension HomeStore {
     static let launchAtLoginOnboardingChoiceKey = "launch_at_login_onboarding_choice"
     static let launchAtLoginChoiceAppliedKey = "launch_at_login_onboarding_choice_applied"
     static let launchAtLoginSuggestionDismissedKey = "launch_at_login_suggestion_dismissed"
+    static let launchAtLoginRegistrationFailedKey = "launch_at_login_registration_failed"
 
     /// Whether a real account or the offline demo is currently usable. The onboarding guide's first
     /// step and its demo escape hatch share this definition so they cannot disagree.

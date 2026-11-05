@@ -29,6 +29,9 @@ struct SystemLaunchAtLogin: LaunchAtLoginSystem {
 
 extension LaunchAtLoginCoordinator {
     static func live(store: HomeStore) -> LaunchAtLoginCoordinator {
-        LaunchAtLoginCoordinator(system: SystemLaunchAtLogin(), store: store)
+        LaunchAtLoginCoordinator(
+            system: store.launchAtLoginSystem ?? SystemLaunchAtLogin(),
+            store: store
+        )
     }
 }
