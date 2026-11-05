@@ -125,7 +125,8 @@ public enum UnsupportedDeviceCollector {
                 continue
             } else if activeCount == 0 {
                 out.append(UnsupportedDevice(id: device.id, name: name, model: model, reason: .noActiveEntities))
-            } else if !synthesizedIds.contains(device.id) {
+            } else if !synthesizedIds.contains(device.id)
+                        && !synthesizedIds.contains(where: { $0.hasPrefix("\(device.id)#") }) {
                 out.append(UnsupportedDevice(id: device.id, name: name, model: model, reason: .unsupportedEntities))
             }
         }

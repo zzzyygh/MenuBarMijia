@@ -34,7 +34,8 @@ extension HomeStore {
             if s.subtype == .curtain, s.isMoving {
                 // Stopping a moving curtain is a de-escalation action (or expands the drawer if
                 // pause is unavailable) and never asks for hazard confirmation.
-            } else if let _ = s.openDescription, let _ = s.closeDescription, let pos = s.positionPercent {
+            } else if let pos = s.positionPercent,
+                      (pos == 0 ? s.openDescription : s.closeDescription) != nil {
                 guard allowManualControl(.power(pos == 0), for: previous) else { return nil }
             } else {
                 toggleExpanded(device.id)
@@ -121,8 +122,8 @@ extension HomeStore {
                 updated.kind = .cover(s)
                 command = .setSelectOption(entityId: s.entityId, option: pause)
             } else {
-                guard let open = s.openDescription, let close = s.closeDescription,
-                      let pos = s.positionPercent else {
+                guard let pos = s.positionPercent,
+                      let action = (pos == 0 ? s.openDescription : s.closeDescription) else {
                     toggleExpanded(device.id)
                     return nil
                 }
@@ -130,7 +131,7 @@ extension HomeStore {
                 s.positionPercent = shouldOpen ? 100 : 0
                 s.motion = shouldOpen ? .opening : .closing
                 updated.kind = .cover(s)
-                command = .setSelectOption(entityId: s.entityId, option: shouldOpen ? open : close)
+                command = .setSelectOption(entityId: s.entityId, option: action)
             }
         case .speaker, .fridge, .sensor:
             toggleExpanded(device.id)

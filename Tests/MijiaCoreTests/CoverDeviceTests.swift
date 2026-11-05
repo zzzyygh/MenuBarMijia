@@ -366,4 +366,61 @@ struct CoverDeviceTests {
         }
         #expect(cover.subtype == .curtain)
     }
+
+    @Test("A Home Assistant device with multiple cover.* entities splits into one card per entity and respects SET_POSITION-only features")
+    @MainActor
+    func haMultiCoverDeviceSplitsAndRespectsFeatureBits() async throws {
+        let dualDevice = HADeviceEntry(id: "ha_dual", area_id: "bedroom", name: "卧室双轨窗帘", model: "czmydz.curtain.myf5")
+        let entities = [
+            HAEntityEntry(entity_id: "cover.drape", device_id: "ha_dual", name: "卧室布帘"),
+            HAEntityEntry(entity_id: "cover.sheer", device_id: "ha_dual", name: "卧室纱帘"),
+        ]
+        let states: [String: HAEntityState] = [
+            "cover.drape": HAEntityState(
+                entityId: "cover.drape",
+                state: "closed",
+                attributes: ["device_class": .string("curtain"), "current_position": .number(0), "supported_features": .number(4)]
+            ),
+            "cover.sheer": HAEntityState(
+                entityId: "cover.sheer",
+                state: "open",
+                attributes: ["device_class": .string("curtain"), "current_position": .number(80), "supported_features": .number(15)]
+            ),
+        ]
+        let home = DeviceSynthesizer.synthesize(
+            areas: [HAAreaEntry(area_id: "bedroom", name: "卧室")],
+            devices: [dualDevice],
+            entities: entities,
+            states: states
+        )
+        #expect(home.devices.count == 2)
+        let drape = try #require(home.devices.first { $0.id == "ha_dual#cover.drape" })
+        let sheer = try #require(home.devices.first { $0.id == "ha_dual#cover.sheer" })
+        #expect(drape.name == "卧室布帘")
+        #expect(sheer.name == "卧室纱帘")
+
+        if case .cover(let drapeSpec) = drape.kind {
+            #expect(drapeSpec.positionWritable, "supported_features 4 (SET_POSITION) enables position slider")
+            #expect(drapeSpec.openDescription == nil)
+            #expect(drapeSpec.closeDescription == nil)
+            #expect(drapeSpec.pauseDescription == nil)
+        } else {
+            Issue.record("drape did not synthesize as .cover")
+        }
+
+        let unsupported = UnsupportedDeviceCollector.homeAssistant(
+            devices: [dualDevice],
+            entities: entities,
+            states: states,
+            synthesized: home
+        )
+        #expect(unsupported.isEmpty)
+
+        // Tapping a SET_POSITION-only cover expands the drawer instead of sending open_cover/close_cover
+        let (store, mock) = try await makeStore([drape, sheer])
+        let drapeCard = try #require(store.devices.first { $0.id == "ha_dual#cover.drape" })
+        #expect(store.togglePrimary(drapeCard) == nil)
+        #expect(store.expandedDeviceId == "ha_dual#cover.drape")
+        #expect(await mock.executedCommands.isEmpty)
+    }
 }

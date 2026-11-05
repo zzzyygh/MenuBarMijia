@@ -304,8 +304,52 @@ public enum DeviceSynthesizer {
                 entities: devEntities,
                 states: states
             ) {
-                smartDevices.append(built)
-                identities[built.id] = sourceIdentity(device: built, registry: dev, entities: devEntities)
+                let activeCovers = devEntities.filter { entity in
+                    entity.entity_id.hasPrefix("cover.")
+                        && entity.entity_category != "config"
+                        && entity.entity_category != "diagnostic"
+                        && states[entity.entity_id] != nil
+                }
+                if case .cover = built.kind, activeCovers.count > 1 {
+                    let nonCoverEntities = devEntities.filter { !$0.entity_id.hasPrefix("cover.") }
+                    for coverEnt in activeCovers {
+                        let trackId = "\(dev.id)#\(coverEnt.entity_id)"
+                        let rawTrackName = coverEnt.name
+                            ?? states[coverEnt.entity_id]?.attributes["friendly_name"]?.stringValue
+                            ?? coverEnt.original_name
+                            ?? rawDeviceName
+                        let trackName = cleanDeviceName(rawTrackName, roomName: roomName, model: model)
+                        let trackEntities = [coverEnt] + nonCoverEntities
+                        if let trackBuilt = applyingSafetyObservations(
+                            buildSmartDevice(
+                                deviceId: trackId,
+                                name: trackName,
+                                roomId: roomId,
+                                roomName: roomName,
+                                model: model,
+                                entities: trackEntities,
+                                states: states
+                            ),
+                            deviceId: trackId,
+                            name: trackName,
+                            roomId: roomId,
+                            roomName: roomName,
+                            model: model,
+                            entities: trackEntities,
+                            states: states
+                        ) {
+                            smartDevices.append(trackBuilt)
+                            identities[trackBuilt.id] = sourceIdentity(
+                                device: trackBuilt,
+                                registry: dev,
+                                entities: trackEntities
+                            )
+                        }
+                    }
+                } else {
+                    smartDevices.append(built)
+                    identities[built.id] = sourceIdentity(device: built, registry: dev, entities: devEntities)
+                }
             }
         }
 
@@ -907,6 +951,7 @@ public enum DeviceSynthesizer {
             entity.entity_id.hasPrefix("cover.")
                 && entity.entity_category != "config"
                 && entity.entity_category != "diagnostic"
+                && states[entity.entity_id] != nil
         }
         if let coverEnt = primaryCovers.first,
            let st = states[coverEnt.entity_id] {
@@ -931,15 +976,26 @@ public enum DeviceSynthesizer {
                 nil
             }
             let supportedFeatures = st.attributes["supported_features"]?.intValue
-            let hasFeatureMask = (supportedFeatures ?? 0) > 0
-            let openDescription: String? = (!hasFeatureMask || (supportedFeatures! & 1) != 0) ? "Open" : nil
-            let closeDescription: String? = (!hasFeatureMask || (supportedFeatures! & 2) != 0) ? "Close" : nil
-            let positionWritable: Bool = if hasFeatureMask {
-                (supportedFeatures! & 4) != 0
+            let openDescription: String? = if let supportedFeatures {
+                (supportedFeatures & 1) != 0 ? "Open" : nil
+            } else {
+                "Open"
+            }
+            let closeDescription: String? = if let supportedFeatures {
+                (supportedFeatures & 2) != 0 ? "Close" : nil
+            } else {
+                "Close"
+            }
+            let positionWritable: Bool = if let supportedFeatures {
+                (supportedFeatures & 4) != 0
             } else {
                 rawPosition != nil
             }
-            let pauseDescription: String? = (!hasFeatureMask || (supportedFeatures! & 8) != 0) ? "Pause" : nil
+            let pauseDescription: String? = if let supportedFeatures {
+                (supportedFeatures & 8) != 0 ? "Pause" : nil
+            } else {
+                "Pause"
+            }
             let motion: CoverMotion = switch stateLower {
             case "opening": .opening
             case "closing": .closing
