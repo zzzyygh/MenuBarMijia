@@ -66,10 +66,11 @@ export async function handleNaturalCommand(host: MenuMijiaWindowsApp, rawInput: 
           localParseOptions(host),
         );
         if (resolved && resolved.intents.length === 0) {
-          host.pendingSuggestions = [...resolved.suggestions];
+          // A timer never fires an unresolved choice; ask for the room or device now.
+          host.pendingSuggestions = [];
           host.replyBanner = {
             text: resolved.reply || t("无法找到指令对应的设备"),
-            source: resolved.suggestions.length > 0 ? t("需要确认") : t("0ms 本地直达"),
+            source: t("0ms 本地直达"),
           };
           host.render();
           return;

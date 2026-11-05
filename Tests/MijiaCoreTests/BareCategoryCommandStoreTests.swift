@@ -91,7 +91,7 @@ struct BareCategoryCommandStoreTests {
 
         #expect(plan.intents.isEmpty)
         #expect(store.assistantState == .done("灯都关着"))
-        #expect(store.assistantSuggestions.isEmpty)
+        #expect(store.assistantSuggestions.contains { $0.id.hasPrefix("bare:off") } == false)
         #expect(await mock.executedCommands.isEmpty)
     }
 
@@ -107,6 +107,40 @@ struct BareCategoryCommandStoreTests {
         #expect(executed.count == 2)
         #expect(store.devices.first { $0.id == "dev_bedroom_lamp" }?.isActiveOn == true)
         #expect(store.undoBanner?.restoreCommands.count == 2)
+    }
+
+    @Test("A delayed bare 关灯 that needs a choice sets no timer, runs nothing, and asks for a room")
+    func delayedAmbiguitySchedulesNothing() async throws {
+        let (store, mock) = try await Self.makeStore()
+        let plan = try #require(await store.runAssistantCommand("10分钟后关灯"))
+        #expect(plan.intents.isEmpty)
+        #expect(store.scheduledCommands.isEmpty)
+        #expect(await mock.executedCommands.isEmpty)
+        #expect(store.assistantSuggestions.contains { $0.id == "bare:off:all" } == false)
+        guard case .done(let reply) = store.assistantState else {
+            Issue.record("expected a done answer, got \(store.assistantState)")
+            return
+        }
+        #expect(reply == "开着：书房吸顶灯、书房台灯、主卧床头灯。请说出房间或设备名")
+    }
+
+    @Test("An answer with no lights on replaces the previous bare 关灯 chips")
+    func answerClearsStaleChips() async throws {
+        let (store, mock) = try await Self.makeStore()
+        _ = await store.runAssistantCommand("关灯")
+        #expect(store.assistantSuggestions.contains { $0.id == "bare:off:all" })
+
+        let allOff = [
+            Self.studyCeiling.off(), Self.studyDesk.off(),
+            Self.bedroomLamp.off(), Self.kitchenLight
+        ]
+        await mock.updateSnapshot(SynthesizedHome(rooms: Self.rooms, devices: allOff))
+        for _ in 0..<50 where store.devices.contains(where: \.isActiveOn) {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        _ = await store.runAssistantCommand("关灯")
+        #expect(store.assistantState == .done("灯都关着"))
+        #expect(store.assistantSuggestions.contains { $0.id.hasPrefix("bare:off") } == false)
     }
 
     @Test("A delayed bare 关灯 resolves against the panel room when the timer is set")

@@ -404,6 +404,14 @@ extension HomeStore {
         }
         guard controlContext == controlContextID else { return nil }
         guard !plan.intents.isEmpty else {
+            if delayed != nil, plan.source == .local {
+                // A timer never fires an unresolved choice; ask for the room or device now.
+                assistantSuggestions = localTopSuggestions()
+                setAssistantState(.done(plan.reply.isEmpty
+                    ? L10n.tr("没有找到可执行的设备操作", "No matching device actions found")
+                    : plan.reply))
+                return plan
+            }
             if !plan.suggestions.isEmpty {
                 assistantSuggestions = plan.suggestions
                 setAssistantState(.awaitingChoice(plan.reply.isEmpty
@@ -412,6 +420,7 @@ extension HomeStore {
                 return plan
             }
             if plan.source == .local, !plan.reply.isEmpty {
+                assistantSuggestions = localTopSuggestions()
                 setAssistantState(.done(plan.reply))
                 return plan
             }

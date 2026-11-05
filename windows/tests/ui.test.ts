@@ -1109,6 +1109,16 @@ describe("Bare category commands (#273)", () => {
     assert.match(tile("light.study_desk"), /已关闭/);
   });
 
+  it("a delayed 关灯 that needs a choice sets no timer and runs nothing", async () => {
+    startDemo();
+    await command("10分钟后关灯");
+    assert.match(document.body.textContent ?? "", /开着：客厅吸顶灯、书房台灯。请说出房间或设备名/);
+    assert.equal(document.querySelector("[data-suggestion-id]"), null);
+    assert.doesNotMatch(document.body.textContent ?? "", /剩余/);
+    assert.match(tile("light.living_ceiling"), /已开启/);
+    assert.match(tile("light.study_desk"), /已开启/);
+  });
+
   it("关监控 closes the only camera that is on and leaves the rest alone", async () => {
     startDemo();
     await command("关监控");
