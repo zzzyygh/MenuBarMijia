@@ -22,10 +22,10 @@ Do **not** wait for Greptile or Macroscope unless the repo actually uses them.
 Never write your own sleep poller. Use one watcher per PR:
 
 ```bash
-.cursor/skills/tstack-babysit-pr/scripts/pr-wait <pr> --repo jryang1997/MenuBarMijia --until green
+.cursor/skills/tstack-babysit-pr/scripts/pr-wait <pr> --repo jryang1997/MenuBarMijia --until codex
 ```
 
-Then verify the Codex tip review via GitHub tools. For MenuBarMijia prefer `green` + Codex, not tstack's default `ready` (Greptile).
+`--until codex` is the merge gate above in one watcher: it exits 0 with `codex-green` once required checks are green, Codex completed on the current head with no findings, no thread is unresolved and the branch is not BEHIND. It exits 1 naming the blocker (findings, unresolved threads, BEHIND, or `codex failed`, which means comment `@codex review` again). After every push, comment `@codex review` and start a new watcher.
 
 pstack alternative: poteto-mode Babysit playbook. Prefer one watcher stack per PR.
 

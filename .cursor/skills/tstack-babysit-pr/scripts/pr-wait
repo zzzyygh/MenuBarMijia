@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """pr-wait: watch one GitHub pull request and print one line per real event.
 
-  pr-wait <pr> [--repo owner/name] [--until green|ready|any-change] [--interval 20]
+  pr-wait <pr> [--repo owner/name] [--until green|ready|codex|any-change] [--interval 20]
 
 <pr> is a PR number or PR URL. Without --repo, the repo comes from the URL or
 from the current checkout. Stdout carries only events, one line each, so a
@@ -13,13 +13,17 @@ Progress and errors that do not end the run go to stderr.
               the base branch requires none)
   ready      green, Greptile or Macroscope reviewed the current head, and no
               review thread is unresolved (default)
+  codex       green, the Codex review (chatgpt-codex-connector) completed on
+              the current head with no unresolved findings, no review thread
+              is unresolved, and the branch is not BEHIND
   any-change  stop after the first poll that prints an event
 
 Exit codes
   0  the --until condition is met, or the PR merged
   1  the condition cannot be met without action: a required check failed, the
-     branch conflicts with its base, the PR closed, `ready` is blocked by
-     unresolved threads or a BEHIND branch, or GitHub stayed unreachable
+     branch conflicts with its base, the PR closed, `ready` or `codex` is
+     blocked by unresolved threads, findings or a BEHIND branch, the Codex
+     review failed on the head, or GitHub stayed unreachable
   2  bad arguments, unknown PR, or another pr-wait already watches this PR
 
 Events
@@ -29,6 +33,7 @@ Events
     PR author or the gh user
   - Greptile, Macroscope, or CodeRabbit finished on the head, or a Greptile or
     Macroscope summary changed after that
+  - the Codex review completed or failed on the head
   - the base branch moved and the new commits touch files in this PR
   - merge state became BEHIND or DIRTY
   - the PR merged or closed
@@ -60,6 +65,10 @@ from pathlib import Path
 from typing import Any, NoReturn
 
 GATING_BOTS = ("greptile", "macroscope")
+CODEX_BOT = "chatgpt-codex-connector"
+# Codex keeps one summary comment and rewrites this marker in place on every review.
+CODEX_STATE = re.compile(r"codex-review-state:v1\s*(\{.*?\})\s*-->", re.DOTALL)
+CODEX_FAILED = re.compile(r"something went wrong|couldn't complete this review|usage limit", re.IGNORECASE)
 ADVISORY_BOTS = ("coderabbit",)
 # CI and deploy bots report through checks. Their PR comments are status reports.
 STATUS_BOTS = ("github-actions", "vercel", "netlify", "railway", "cloudflare")
@@ -190,6 +199,29 @@ def verdict(body: str) -> str:
 
 def digest(body: str) -> str:
     return hashlib.sha1(re.sub(r"\s+", " ", plain(body)).encode()).hexdigest()[:12]
+
+
+def codex_review(comments: list[Json], mine: set[str]) -> tuple[Json | None, bool]:
+    """The Codex `code_review` state from its summary comment, and whether a Codex
+    failure note ("Something went wrong") is newer than the last `@codex review`
+    request. Comments arrive oldest first."""
+    state: Json | None = None
+    failed_at = requested_at = -1
+    for index, comment in enumerate(comments):
+        login, _ = who(comment)
+        body = comment.get("body") or ""
+        if login == CODEX_BOT:
+            match = CODEX_STATE.search(body)
+            if match:
+                try:
+                    state = json.loads(match.group(1)).get("code_review")
+                except (ValueError, AttributeError):
+                    pass
+            elif CODEX_FAILED.search(body):
+                failed_at = index
+        elif login in mine and "@codex review" in body:
+            requested_at = index
+    return state, failed_at > requested_at
 
 
 def parse_target(raw: str | None, repo: str | None) -> tuple[str, int]:
@@ -490,6 +522,18 @@ class Watcher:
                         text = verdict(s["body"]) or snippet(s["body"])
                         self.emit(f"summary:{s['id']}:{new}", f"{bot} summary changed on {short}: {text} {s['url']}")
 
+        # Codex review on the current head.
+        codex, codex_note_failed = codex_review(comments, mine)
+        codex_on_head = bool(codex) and codex.get("commit_sha") == head
+        codex_status = (codex or {}).get("status") if codex_on_head else None
+        codex_findings = bool((codex or {}).get("has_unresolved_findings")) if codex_on_head else False
+        codex_failed = codex_status == "failed" or (codex_note_failed and codex_status != "completed")
+        if codex_status == "completed":
+            result = "unresolved findings" if codex_findings else "no findings"
+            self.emit(f"codex:{head}:{result}", f"codex completed on {short}: {result}")
+        if codex_failed:
+            self.emit(f"codex:{head}:failed", f"codex failed on {short}: comment `@codex review` again, or review it yourself")
+
         # Base branch and merge state.
         base_oid = ((pr.get("baseRef") or {}).get("target") or {}).get("oid")
         old_base = self.state["base_oid"]
@@ -524,7 +568,9 @@ class Watcher:
             if self.required
             else "",
             ", ".join(bot_status[b] for b in GATING_BOTS + ADVISORY_BOTS if b in bot_status)
-            or "no Greptile or Macroscope yet",
+            or ("" if self.until == "codex" else "no Greptile or Macroscope yet"),
+            (f"codex {codex_status or 'pending'}{' with findings' if codex_findings else ''} on {short}"
+             if codex_on_head else f"codex not on {short} yet") if self.until == "codex" else "",
             f"{len(unresolved)} unresolved threads",
             f"merge state {merge_state}",
         ]
@@ -538,11 +584,24 @@ class Watcher:
                 self.finish(1, [dirty_line])
             if fail_lines:
                 self.finish(1, fail_lines)
+            if self.until == "codex" and codex_failed:
+                self.finish(1, [f"codex failed on {short}: comment `@codex review` again, or review it yourself"])
+            if self.until == "codex" and green and codex_status == "completed":
+                if codex_findings or unresolved:
+                    blockers = ", ".join(filter(None, [
+                        "codex has unresolved findings" if codex_findings else "",
+                        f"{len(unresolved)} unresolved threads {' '.join(unresolved)}" if unresolved else "",
+                    ]))
+                    self.finish(1, [f"blocked on {short}: {blockers}"])
+                if merge_state == "BEHIND":
+                    self.finish(1, [behind_line])
+                self.reported.add(checks_key)
+                self.finish(0, [f"codex-green on {short}: {summary}{self.behind(base, base_oid, head)}"])
             if green and self.until == "green":
                 self.reported.add(checks_key)
                 self.finish(0, [f"green on {short}: {summary}{self.behind(base, base_oid, head)}"])
             # ready waits for Greptile or Macroscope, never for CodeRabbit.
-            if green and reviewed:
+            if green and reviewed and self.until == "ready":
                 if unresolved:
                     self.finish(1, [f"blocked by {len(unresolved)} unresolved threads on {short}: {' '.join(unresolved)}"])
                 if merge_state == "BEHIND":
@@ -579,7 +638,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(prog="pr-wait", description="Watch a GitHub PR and print one line per real event.")
     parser.add_argument("pr", nargs="?", help="PR number or URL")
     parser.add_argument("--repo", help="owner/name (default: from the URL or the current checkout)")
-    parser.add_argument("--until", choices=("green", "ready", "any-change"), default="ready")
+    parser.add_argument("--until", choices=("green", "ready", "codex", "any-change"), default="ready")
     parser.add_argument("--interval", type=int, default=20, help="seconds between polls (default 20, min 5)")
     args = parser.parse_args()
     repo, pr = parse_target(args.pr, args.repo)
