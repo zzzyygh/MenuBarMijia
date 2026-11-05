@@ -557,6 +557,26 @@ struct UpdateCheckerTests {
     }
 
     #if os(macOS)
+    @Test("A DMG attach busy for longer than a couple of seconds still succeeds, and a real failure surfaces")
+    func dmgAttachRidesOutBusyBursts() async throws {
+        var attempts = 0
+        var waited: Duration = .zero
+        let recovered = try await UpdateSystemDriver.retryingAttach(
+            { attempts += 1; return attempts > 6 },
+            succeeded: { $0 },
+            sleep: { waited += $0 }
+        )
+        #expect(recovered)
+        #expect(waited > .seconds(5), "the old five tries gave up after 2.5 s of busy attaches")
+
+        attempts = 0
+        waited = .zero
+        let failed = try await UpdateSystemDriver.retryingAttach({ attempts += 1; return false }, succeeded: { $0 }, sleep: { waited += $0 })
+        #expect(!failed)
+        #expect(attempts == UpdateSystemDriver.dmgAttachBackoff.count + 1)
+        #expect(waited < .seconds(20), "an update install never stalls long on a broken image")
+    }
+
     private static func runTool(_ executable: String, _ arguments: [String]) throws {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: executable)

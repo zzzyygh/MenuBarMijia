@@ -680,23 +680,34 @@ public struct UpdateSystemDriver: Sendable {
         }
     }
 
+    /// `hdiutil attach` fails with "Resource temporarily unavailable" while other disk images
+    /// attach elsewhere on the Mac, and those bursts can outlast a couple of seconds. About 15 s of
+    /// exponential backoff rides them out; a real failure still surfaces after the last attempt.
+    static let dmgAttachBackoff: [Duration] = [
+        .milliseconds(250), .milliseconds(500), .seconds(1), .seconds(2), .seconds(4), .seconds(4), .seconds(4),
+    ]
+
+    static func retryingAttach<Output>(
+        _ attempt: () async throws -> Output,
+        succeeded: (Output) -> Bool,
+        sleep: (Duration) async throws -> Void = { try await Task.sleep(for: $0) }
+    ) async throws -> Output {
+        var result = try await attempt()
+        for delay in dmgAttachBackoff where !succeeded(result) {
+            try await sleep(delay)
+            result = try await attempt()
+        }
+        return result
+    }
+
     private static func unpackDMG(at dmgURL: URL, destinationDir: URL) async throws -> URL {
         let mountParent = destinationDir.appendingPathComponent("mnt", isDirectory: true)
         try FileManager.default.createDirectory(at: mountParent, withIntermediateDirectories: true)
         let attachArguments = ["attach", "-nobrowse", "-readonly", "-noverify", "-mountrandom", mountParent.path, "-plist", dmgURL.path]
-        var attachResult = try await runProcess(
-            executable: "/usr/bin/hdiutil",
-            arguments: attachArguments
+        let attachResult = try await retryingAttach(
+            { try await runProcess(executable: "/usr/bin/hdiutil", arguments: attachArguments) },
+            succeeded: { $0.exitCode == 0 }
         )
-        var attempt = 1
-        while attachResult.exitCode != 0 && attempt < 5 {
-            try await Task.sleep(for: .milliseconds(250 * attempt))
-            attachResult = try await runProcess(
-                executable: "/usr/bin/hdiutil",
-                arguments: attachArguments
-            )
-            attempt += 1
-        }
         guard attachResult.exitCode == 0 else {
             try? FileManager.default.removeItem(at: mountParent)
             let reason = attachResult.stderr.trimmingCharacters(in: .whitespacesAndNewlines)
