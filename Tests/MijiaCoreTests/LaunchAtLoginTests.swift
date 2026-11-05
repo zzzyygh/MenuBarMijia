@@ -176,6 +176,136 @@ struct LaunchAtLoginTests {
         #expect(second.launchAtLoginStatus == .notRegistered)
     }
 
+    @Test("A real Mi login registers the default-checked launch at login")
+    @MainActor
+    func realMiLoginRegistersLaunchAtLogin() {
+        let suite = "test.launchAtLogin.mi-login.\(UUID().uuidString)"
+        defer { UserDefaults.standard.removePersistentDomain(forName: suite) }
+        let system = FakeSystem()
+        let store = HomeStore(provider: MockHomeProvider(), defaultsSuiteName: suite)
+        store.launchAtLoginSystem = system
+        store.homeBackend = .xiaomiCloud
+        store.completeMiLogin(MiSession(
+            userId: "28100001",
+            cUserId: "c",
+            ssecurity: "s",
+            serviceToken: "t",
+            region: "cn"
+        ))
+        defer { store.logoutMiAccount() }
+
+        #expect(system.registerCalls == 1)
+        #expect(store.hasAppliedLaunchAtLoginOnboardingChoice)
+        #expect(store.hasCompletedOnboarding)
+        #expect(store.launchAtLoginStatus == .enabled)
+    }
+
+    @Test("A real Home Assistant connection registers the default-checked launch at login")
+    @MainActor
+    func realHAConnectionRegistersLaunchAtLogin() {
+        let suite = "test.launchAtLogin.ha-connect.\(UUID().uuidString)"
+        defer { UserDefaults.standard.removePersistentDomain(forName: suite) }
+        let system = FakeSystem()
+        let store = HomeStore(provider: MockHomeProvider(), defaultsSuiteName: suite)
+        store.launchAtLoginSystem = system
+
+        store.updateConnection(serverURL: "http://127.0.0.1:1", token: "test-token")
+
+        #expect(system.registerCalls == 1)
+        #expect(store.hasAppliedLaunchAtLoginOnboardingChoice)
+        #expect(store.hasCompletedOnboarding)
+        #expect(store.launchAtLoginStatus == .enabled)
+    }
+
+    @Test("A real Mi login does not register after the checkbox was cleared")
+    @MainActor
+    func uncheckedRealMiLoginDoesNotRegister() {
+        let suite = "test.launchAtLogin.mi-login-unchecked.\(UUID().uuidString)"
+        defer { UserDefaults.standard.removePersistentDomain(forName: suite) }
+        let system = FakeSystem()
+        let store = HomeStore(provider: MockHomeProvider(), defaultsSuiteName: suite)
+        store.launchAtLoginSystem = system
+        store.launchAtLoginOnboardingChoice = false
+
+        store.completeMiLogin(MiSession(
+            userId: "28100002",
+            cUserId: "c",
+            ssecurity: "s",
+            serviceToken: "t",
+            region: "cn"
+        ))
+        defer { store.logoutMiAccount() }
+
+        #expect(system.registerCalls == 0)
+        #expect(store.hasAppliedLaunchAtLoginOnboardingChoice)
+        #expect(store.launchAtLoginStatus == .notRegistered)
+    }
+
+    @Test("A demo visit does not burn the one-shot onboarding choice")
+    @MainActor
+    func demoVisitDoesNotApplyLaunchAtLogin() {
+        let suite = "test.launchAtLogin.demo.\(UUID().uuidString)"
+        defer { UserDefaults.standard.removePersistentDomain(forName: suite) }
+        let system = FakeSystem()
+        let store = HomeStore(provider: MockHomeProvider(), defaultsSuiteName: suite)
+        store.launchAtLoginSystem = system
+
+        store.switchBackend(.demo)
+        #expect(store.hasConfiguredHomeSource)
+        #expect(!store.hasAppliedLaunchAtLoginOnboardingChoice)
+        #expect(system.registerCalls == 0)
+
+        store.switchBackend(.xiaomiCloud)
+        store.launchAtLoginOnboardingChoice = false
+        store.completeMiLogin(MiSession(
+            userId: "28100003",
+            cUserId: "c",
+            ssecurity: "s",
+            serviceToken: "t",
+            region: "cn"
+        ))
+        defer { store.logoutMiAccount() }
+
+        #expect(system.registerCalls == 0)
+        #expect(system.unregisterCalls == 1)
+        #expect(!store.launchAtLoginStatus.isEnabled)
+    }
+
+    @Test("Closing an old install's checklist does not register by itself")
+    @MainActor
+    func oldInstallCompletionDoesNotRegister() {
+        let system = FakeSystem()
+        let store = Self.makeStore("old-completion")
+        store.launchAtLoginSystem = system
+        store.hasCompletedOnboarding = true
+
+        store.completeOnboarding()
+
+        #expect(system.registerCalls == 0)
+        #expect(!store.hasAppliedLaunchAtLoginOnboardingChoice)
+    }
+
+    @Test("A failed onboarding registration stays visible after a relaunch")
+    @MainActor
+    func registrationFailurePersists() {
+        let suite = "test.launchAtLogin.failure-persist.\(UUID().uuidString)"
+        defer { UserDefaults.standard.removePersistentDomain(forName: suite) }
+        let mock = MockHomeProvider(snapshot: SynthesizedHome(devices: [], scenes: []))
+        let system = FakeSystem()
+        system.registerError = FakeError.rejected
+        let first = HomeStore(provider: mock, defaultsSuiteName: suite)
+        first.launchAtLoginSystem = system
+
+        first.completeOnboarding()
+
+        #expect(first.launchAtLoginRegistrationFailed)
+        #expect(first.launchAtLoginPolicy.needsManualApproval)
+
+        let second = HomeStore(provider: mock, defaultsSuiteName: suite)
+        #expect(second.launchAtLoginRegistrationFailed)
+        #expect(second.launchAtLoginPolicy.needsManualApproval)
+    }
+
     @Test("An upgraded install sees the checklist card without the guide popping open")
     @MainActor
     func oldInstallGetsChecklistOnly() {
