@@ -82,6 +82,7 @@ import {
   deviceReadout,
   readMiotPower,
   deviceStatusSummary,
+  type CoverSpec,
   type SmartDevice,
 } from "../src/core/models.js";
 
@@ -1075,6 +1076,60 @@ describe("MiotSynthesizer & MiotCommandMapper", () => {
         );
       }
     }
+  });
+
+  it("drives curtain cards through motor-control (#279)", () => {
+    const corpus = JSON.parse(readFileSync(resolve(process.cwd(), "../Tests/Fixtures/miot_golden.json"), "utf8")) as {
+      specs: Record<string, unknown>;
+    };
+    const spec = parseMiotDeviceSpec(corpus.specs["fixture.curtain.single"]);
+    assert.ok(spec);
+    const base: SmartDevice = {
+      id: "did_curtain",
+      name: "客厅窗帘",
+      roomId: "room_living",
+      roomName: "客厅",
+      model: "fixture.curtain.single",
+      isOnline: true,
+      kind: {
+        kind: "cover",
+        entityId: "miot:did_curtain:2",
+        subtype: "curtain",
+        positionPercent: 0,
+        positionWritable: true,
+        openDescription: "Open",
+        closeDescription: "Close",
+        pauseDescription: "Pause",
+        batteryPercent: null,
+        faultText: null,
+        motion: "stopped",
+      },
+    };
+    const commands = (isOn: boolean, device: SmartDevice = base) =>
+      IntentValidator.commandsForIntent({ targetId: device.id, operation: { kind: "power", isOn } }, device);
+
+    assert.deepEqual(commands(true), [{ kind: "setSelectOption", entityId: "miot:did_curtain:2", option: "Open" }]);
+    assert.deepEqual(MiotCommandMapper.map(commands(true)[0]!, spec), {
+      kind: "setProps",
+      writes: [{ did: "did_curtain", siid: 2, piid: 1, value: 1 }],
+    });
+    assert.deepEqual(commands(false), [{ kind: "setSelectOption", entityId: "miot:did_curtain:2", option: "Close" }]);
+    assert.deepEqual(MiotCommandMapper.map(commands(false)[0]!, spec), {
+      kind: "setProps",
+      writes: [{ did: "did_curtain", siid: 2, piid: 1, value: 2 }],
+    });
+
+    const moving: SmartDevice = {
+      ...base,
+      kind: { ...(base.kind as CoverSpec), motion: "opening" },
+    };
+    assert.deepEqual(commands(false, moving), [
+      { kind: "setSelectOption", entityId: "miot:did_curtain:2", option: "Pause" },
+    ]);
+    assert.deepEqual(MiotCommandMapper.map(commands(false, moving)[0]!, spec), {
+      kind: "setProps",
+      writes: [{ did: "did_curtain", siid: 2, piid: 1, value: 0 }],
+    });
   });
 
   it("parses split Mesh switch keys and multi-home rooms with room-less home dids", () => {

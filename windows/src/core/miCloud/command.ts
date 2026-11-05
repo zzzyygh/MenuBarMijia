@@ -321,7 +321,10 @@ export const MiotCommandMapper = {
         throw new Error("Unsupported property: on");
       }
       case "setSelectOption": {
-        const found = findListProp("mode", command.option) ?? findListProp("night-shot", command.option);
+        const found =
+          findListProp("motor-control", command.option) ??
+          findListProp("mode", command.option) ??
+          findListProp("night-shot", command.option);
         if (!found) throw new Error(`Unsupported select option: ${command.option}`);
         return {
           kind: "setProps",

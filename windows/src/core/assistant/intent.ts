@@ -270,6 +270,13 @@ export const IntentValidator = {
           return k.actionsWritable === false
             ? []
             : [{ kind: "vacuumAction", entityId: k.entityId, action: op.isOn ? "start" : "returnToBase" }];
+        if (k.kind === "cover") {
+          if (k.motion !== "stopped" && k.pauseDescription) {
+            return [{ kind: "setSelectOption", entityId: k.entityId, option: k.pauseDescription }];
+          }
+          const option = op.isOn ? k.openDescription : k.closeDescription;
+          return option ? [{ kind: "setSelectOption", entityId: k.entityId, option }] : [];
+        }
         return [];
       }
       case "brightness":

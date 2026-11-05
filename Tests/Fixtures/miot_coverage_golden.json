@@ -11,8 +11,10 @@
       "deviceType" : "bath-heater"
     },
     "090615.curtain.1mcu01" : {
-      "category" : "droppedControllable",
-      "deviceType" : "curtain"
+      "category" : "matched",
+      "deviceType" : "curtain",
+      "service" : "curtain",
+      "unexposedWritable" : 3
     },
     "090615.gateway.ac10" : {
       "category" : "droppedControllable",
@@ -500,8 +502,10 @@
       "service" : "air-conditioner"
     },
     "czmydz.curtain.myf5" : {
-      "category" : "droppedControllable",
-      "deviceType" : "curtain"
+      "category" : "matched",
+      "deviceType" : "curtain",
+      "service" : "curtain",
+      "unexposedWritable" : 13
     },
     "dayi.safe.dy" : {
       "category" : "droppedControllable",
@@ -623,8 +627,10 @@
       "deviceType" : "story-machine"
     },
     "jstar.curtain.jcv24" : {
-      "category" : "droppedControllable",
-      "deviceType" : "curtain"
+      "category" : "matched",
+      "deviceType" : "curtain",
+      "service" : "curtain",
+      "unexposedWritable" : 6
     },
     "jyaiot.cm.ccj01" : {
       "category" : "droppedControllable",
@@ -933,15 +939,15 @@
   },
   "summary" : {
     "categories" : {
-      "droppedControllable" : 98,
+      "droppedControllable" : 95,
       "droppedReadOnly" : 13,
-      "matched" : 47,
+      "matched" : 50,
       "misclaimed" : 16,
       "noUsableProperties" : 31
     },
     "deviceTypes" : 177,
     "specs" : 205,
-    "unexposedWritableTotal" : 330
+    "unexposedWritableTotal" : 352
   },
   "windowsDivergences" : {
     "090615.wifispeaker.x6bj" : {
