@@ -3,6 +3,9 @@ import Foundation
 extension HomeStore {
     static let onboardingMilestonesKey = "onboarding_milestones"
     static let askWhenUnsureKey = "assistant_ask_when_unsure"
+    static let launchAtLoginOnboardingChoiceKey = "launch_at_login_onboarding_choice"
+    static let launchAtLoginChoiceAppliedKey = "launch_at_login_onboarding_choice_applied"
+    static let launchAtLoginSuggestionDismissedKey = "launch_at_login_suggestion_dismissed"
 
     /// Whether a real account or the offline demo is currently usable. The onboarding guide's first
     /// step and its demo escape hatch share this definition so they cannot disagree.
@@ -33,6 +36,37 @@ extension HomeStore {
             onboardingMilestones.map(\.rawValue).sorted(),
             forKey: Self.onboardingMilestonesKey
         )
+    }
+
+    /// Launch-at-login state for the guide, the dashboard checklist and Settings (#281).
+    public var launchAtLoginPolicy: LaunchAtLoginPolicy {
+        LaunchAtLoginPolicy(
+            status: launchAtLoginStatus,
+            onboardingChoice: launchAtLoginOnboardingChoice,
+            appliedOnboardingChoice: hasAppliedLaunchAtLoginOnboardingChoice,
+            dismissedSuggestion: hasDismissedLaunchAtLoginSuggestion,
+            registrationFailed: launchAtLoginRegistrationFailed
+        )
+    }
+
+    /// Upgraded installs get one skippable row in the dashboard checklist, without opening the panel.
+    public var shouldShowLaunchAtLoginSuggestion: Bool {
+        launchAtLoginPolicy.showsChecklistSuggestion(
+            hasCompletedOnboarding: hasCompletedOnboarding
+        )
+    }
+
+    /// The panel draws the checklist card for the normal lessons or for that one launch-at-login row.
+    public var showsOnboardingChecklistCard: Bool {
+        showsOnboardingChecklist || shouldShowLaunchAtLoginSuggestion
+    }
+
+    public func markLaunchAtLoginOnboardingChoiceApplied() {
+        hasAppliedLaunchAtLoginOnboardingChoice = true
+    }
+
+    public func dismissLaunchAtLoginSuggestion() {
+        hasDismissedLaunchAtLoginSuggestion = true
     }
 
     /// The confirmation policy handed to `ModelActionPolicy`, so the advanced threshold and the

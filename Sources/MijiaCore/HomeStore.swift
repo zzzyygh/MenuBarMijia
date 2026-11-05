@@ -232,6 +232,43 @@ public final class HomeStore {
         didSet { userDefaults.set(hasCompletedOnboarding, forKey: "has_completed_onboarding") }
     }
 
+    /// First-run guide's launch-at-login checkbox. Checked until the user clears it (#281).
+    public var launchAtLoginOnboardingChoice: Bool = true {
+        didSet {
+            userDefaults.set(
+                launchAtLoginOnboardingChoice,
+                forKey: Self.launchAtLoginOnboardingChoiceKey
+            )
+        }
+    }
+
+    /// True once the guide left the connect step and applied that checkbox to macOS (#281).
+    public internal(set) var hasAppliedLaunchAtLoginOnboardingChoice: Bool = false {
+        didSet {
+            userDefaults.set(
+                hasAppliedLaunchAtLoginOnboardingChoice,
+                forKey: Self.launchAtLoginChoiceAppliedKey
+            )
+        }
+    }
+
+    /// True when the user skipped the dashboard checklist's launch-at-login row (#281).
+    public internal(set) var hasDismissedLaunchAtLoginSuggestion: Bool = false {
+        didSet {
+            userDefaults.set(
+                hasDismissedLaunchAtLoginSuggestion,
+                forKey: Self.launchAtLoginSuggestionDismissedKey
+            )
+        }
+    }
+
+    /// Last observed `SMAppService` state. Never persisted, so Settings cannot show a remembered
+    /// preference as the system's real state (#281).
+    public var launchAtLoginStatus: LaunchAtLoginStatus = .notRegistered
+
+    /// Ephemeral result of the last register/unregister attempt (#281).
+    public var launchAtLoginRegistrationFailed: Bool = false
+
     /// Steps the guide has seen the user try (#180). Persisted so the checkmarks survive a relaunch.
     /// Connecting is deliberately not stored here: it is derived from the live connection state.
     public internal(set) var onboardingMilestones: Set<OnboardingMilestone> = []
@@ -588,6 +625,9 @@ public final class HomeStore {
         // Privacy-first default: ask for on-device recognition unless the user explicitly opted out (#50).
         self.prefersOnDeviceSpeech = boolOrDefaultTrue("assistant_on_device_speech")
         self.hasCompletedOnboarding = ud.bool(forKey: "has_completed_onboarding")
+        self.launchAtLoginOnboardingChoice = boolOrDefaultTrue(Self.launchAtLoginOnboardingChoiceKey)
+        self.hasAppliedLaunchAtLoginOnboardingChoice = ud.bool(forKey: Self.launchAtLoginChoiceAppliedKey)
+        self.hasDismissedLaunchAtLoginSuggestion = ud.bool(forKey: Self.launchAtLoginSuggestionDismissedKey)
         self.onboardingMilestones = Set(
             (ud.stringArray(forKey: Self.onboardingMilestonesKey) ?? [])
                 .compactMap(OnboardingMilestone.init(rawValue:))
