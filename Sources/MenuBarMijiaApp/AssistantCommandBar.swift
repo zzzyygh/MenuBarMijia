@@ -207,7 +207,8 @@ public final class SpeechInputController {
         let request = SFSpeechAudioBufferRecognitionRequest()
         request.shouldReportPartialResults = true
         request.contextualStrings = SpeechRecognitionHints.contextualStrings(
-            devices: store.devices, rooms: store.rooms, scenes: store.scenes, favoriteOrder: store.favoriteOrder
+            devices: store.devices, rooms: store.rooms, scenes: store.scenes,
+            favoriteDeviceIds: store.favoriteDeviceIds, favoriteOrder: store.favoriteOrder
         )
         // Privacy option: keep recognition on this Mac when the system supports it.
         if store.prefersOnDeviceSpeech && recognizer.supportsOnDeviceRecognition {

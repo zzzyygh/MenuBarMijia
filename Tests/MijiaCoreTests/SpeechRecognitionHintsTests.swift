@@ -30,6 +30,7 @@ struct SpeechRecognitionHintsTests {
             devices: devices,
             rooms: [room("bedroom", "次卧")],
             scenes: [scene("movie", "影院模式")],
+            favoriteDeviceIds: ["climate.ac", "light.living"],
             favoriteOrder: ["climate.ac", "light.living"]
         )
 
@@ -44,6 +45,7 @@ struct SpeechRecognitionHintsTests {
             devices: devices,
             rooms: [room("room", "房间0")],
             scenes: [scene("scene", "场景0")],
+            favoriteDeviceIds: ["light.0"],
             favoriteOrder: ["light.0"]
         )
 
@@ -64,6 +66,7 @@ struct SpeechRecognitionHintsTests {
             devices: devices,
             rooms: [room("study", "书房台灯"), room("bedroom", "次卧")],
             scenes: [scene("movie", "书房台灯")],
+            favoriteDeviceIds: ["light.study"],
             favoriteOrder: ["light.study"]
         )
 
@@ -82,23 +85,40 @@ struct SpeechRecognitionHintsTests {
             devices: devices,
             rooms: [room("bedroom", "\t次卧  ")],
             scenes: [scene("blank", " \n ")],
+            favoriteDeviceIds: [],
             favoriteOrder: []
         )
 
         #expect(hints == ["次卧", "书房台灯"])
     }
 
-    @Test("Unknown favorite ids are ignored")
-    func unknownFavoriteIdIgnored() {
+    @Test("Favorite membership decides priority; missing and stale ids are ignored")
+    func favoriteMembershipWins() {
         let devices = [device("light.one", "灯一"), device("light.two", "灯二")]
 
         let hints = SpeechRecognitionHints.contextualStrings(
             devices: devices,
             rooms: [],
             scenes: [],
-            favoriteOrder: ["missing", "light.two"]
+            favoriteDeviceIds: ["light.two"],
+            favoriteOrder: ["light.one", "missing", "light.two"]
         )
 
         #expect(hints == ["灯二", "灯一"])
+    }
+
+    @Test("A favorite without a saved order still comes before rooms")
+    func favoriteWithoutSavedOrderStillFirst() {
+        let devices = [device("light.one", "灯一"), device("light.study", "书房台灯")]
+
+        let hints = SpeechRecognitionHints.contextualStrings(
+            devices: devices,
+            rooms: [room("bedroom", "次卧")],
+            scenes: [],
+            favoriteDeviceIds: ["light.study"],
+            favoriteOrder: []
+        )
+
+        #expect(hints == ["书房台灯", "次卧", "灯一"])
     }
 }
