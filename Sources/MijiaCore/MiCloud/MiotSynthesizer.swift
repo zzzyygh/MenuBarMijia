@@ -179,15 +179,19 @@ public enum MiotSynthesizer {
         return (service, entry.build)
     }
 
-    static func primary(for spec: MiotDeviceSpec) -> (MiotService, KindBuilder)? {
-        let deviceType = spec.shortName
-        let preferredServices: [String] = switch deviceType {
+    /// Services that count as this device type's own primary service.
+    static func preferredServices(forDeviceType deviceType: String) -> [String] {
+        switch deviceType {
         case "outlet": ["outlet", "switch"]
         case "camera", "cateye", "video-doorbell": ["camera-control", "video-doorbell"]
         case "kettle", "ble-kettle": ["kettle", "ble-kettle", "water-dispenser"]
         default: [deviceType]
         }
-        for serviceName in preferredServices {
+    }
+
+    static func primary(for spec: MiotDeviceSpec) -> (MiotService, KindBuilder)? {
+        let deviceType = spec.shortName
+        for serviceName in preferredServices(forDeviceType: deviceType) {
             if let entry = registry.first(where: { $0.service == serviceName }),
                claims(entry.service, spec: spec),
                let service = spec.services(named: entry.service).first {

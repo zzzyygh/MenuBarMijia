@@ -159,6 +159,100 @@ export function interpretLockStatus(description: string): string | null {
   return null;
 }
 
+/** Services that count as this device type's own primary service. */
+export function preferredMiotServices(deviceType: string): string[] {
+  if (deviceType === "outlet") return ["outlet", "switch"];
+  if (deviceType === "camera" || deviceType === "cateye" || deviceType === "video-doorbell") {
+    return ["camera-control", "video-doorbell"];
+  }
+  if (deviceType === "kettle" || deviceType === "ble-kettle") return ["kettle", "ble-kettle", "water-dispenser"];
+  return [deviceType];
+}
+
+/** The service a card is built from, or undefined when the device is unsupported. */
+export function primaryMiotService(spec: MiotDeviceSpec): MiotService | undefined {
+  const priority = [
+    "air-conditioner",
+    "heater",
+    "thermostat",
+    "electric-blanket",
+    "dehumidifier",
+    "diffuser",
+    "light",
+    "fan",
+    "air-purifier",
+    "air-fresh",
+    "humidifier",
+    "video-doorbell",
+    "vacuum",
+    "fridge",
+    "camera-control",
+    "outlet",
+    "switch",
+    "electronic-valve",
+    "kettle",
+    "ble-kettle",
+    "water-dispenser",
+    "cooker",
+    "air-fryer",
+    "oven",
+    "microwave-oven",
+    "health-pot",
+    "lock",
+    "motion-sensor",
+    "occupancy-sensor",
+    "magnet-sensor",
+    "submersion-sensor",
+    "illumination-sensor",
+    "air-monitor",
+    "temperature-humidity-sensor",
+  ];
+  const devShort = miotShortName(spec.type);
+  const preferredServices = preferredMiotServices(devShort);
+  // A shut-off valve without a power meter is not a breaker and stays unsupported (#265).
+  const claims = (short: string) => short !== "electronic-valve" || isMainsBreaker(spec);
+  let primaryService: MiotService | undefined = spec.services.find((s) => {
+    const sShort = miotShortName(s.type);
+    return preferredServices.includes(sShort) && priority.includes(sShort) && claims(sShort);
+  });
+  if (!primaryService) {
+    for (const p of priority) {
+      // A secondary `light` service must not claim devices whose own type is something
+      // else (hood / airer / bath-heater / ceiling-fan / gateway), or those cards become
+      // bare lamps that only toggle their lamp while the primary function stays hidden.
+      if (p === "light" && devShort !== "light" && !devShort.includes("light") && !devShort.includes("lamp")) {
+        continue;
+      }
+      if (!claims(p)) continue;
+      const found = spec.services.find((s) => miotShortName(s.type) === p);
+      if (found) {
+        primaryService = found;
+        break;
+      }
+    }
+  }
+  if (!primaryService && devShort.endsWith("sensor")) {
+    primaryService = spec.services.find((s) => miotShortName(s.type) === "environment");
+  }
+  if (
+    !primaryService &&
+    // If the spec names a service of its own device type we simply do not support that
+    // category yet — claiming the first writable `on` as a plug would fake a device
+    // (hood/airer would show up as an outlet).
+    !spec.services.some((s) => miotShortName(s.type) === devShort)
+  ) {
+    // Only genuine plug-like services may fall back to a plug card. macOS has no
+    // generic-on fallback at all, so accepting e.g. a bath-heater's `ptc-bath-heater`
+    // or `light` service here would fake a device the other platform drops (#98).
+    primaryService = spec.services.find(
+      (s) =>
+        ["outlet", "switch"].includes(miotShortName(s.type)) &&
+        s.properties.some((p) => miotShortName(p.type) === "on" && p.access.includes("write"))
+    );
+  }
+  return primaryService;
+}
+
 export const MiotSynthesizer = {
   synthesize(
     devices: readonly MiDeviceRecord[],
@@ -295,92 +389,7 @@ export const MiotSynthesizer = {
     spec: MiotDeviceSpec,
     values: ReadonlyMap<string, unknown>
   ): DeviceKind | null {
-    const priority = [
-      "air-conditioner",
-      "heater",
-      "thermostat",
-      "electric-blanket",
-      "dehumidifier",
-      "diffuser",
-      "light",
-      "fan",
-      "air-purifier",
-      "air-fresh",
-      "humidifier",
-      "video-doorbell",
-      "vacuum",
-      "fridge",
-      "camera-control",
-      "outlet",
-      "switch",
-      "electronic-valve",
-      "kettle",
-      "ble-kettle",
-      "water-dispenser",
-      "cooker",
-      "air-fryer",
-      "oven",
-      "microwave-oven",
-      "health-pot",
-      "lock",
-      "motion-sensor",
-      "occupancy-sensor",
-      "magnet-sensor",
-      "submersion-sensor",
-      "illumination-sensor",
-      "air-monitor",
-      "temperature-humidity-sensor",
-    ];
-    const devShort = miotShortName(spec.type);
-    const preferredServices =
-      devShort === "outlet"
-        ? ["outlet", "switch"]
-        : devShort === "camera" || devShort === "cateye" || devShort === "video-doorbell"
-          ? ["camera-control", "video-doorbell"]
-          : devShort === "kettle" || devShort === "ble-kettle"
-            ? ["kettle", "ble-kettle", "water-dispenser"]
-            : [devShort];
-    // A shut-off valve without a power meter is not a breaker and stays unsupported (#265).
-    const claims = (short: string) => short !== "electronic-valve" || isMainsBreaker(spec);
-    let primaryService: MiotService | undefined = spec.services.find((s) => {
-      const sShort = miotShortName(s.type);
-      return preferredServices.includes(sShort) && priority.includes(sShort) && claims(sShort);
-    });
-    if (!primaryService) {
-      for (const p of priority) {
-        // A secondary `light` service must not claim devices whose own type is something
-        // else (hood / airer / bath-heater / ceiling-fan / gateway), or those cards become
-        // bare lamps that only toggle their lamp while the primary function stays hidden.
-        if (p === "light" && devShort !== "light" && !devShort.includes("light") && !devShort.includes("lamp")) {
-          continue;
-        }
-        if (!claims(p)) continue;
-        const found = spec.services.find((s) => miotShortName(s.type) === p);
-        if (found) {
-          primaryService = found;
-          break;
-        }
-      }
-    }
-    if (!primaryService && devShort.endsWith("sensor")) {
-      primaryService = spec.services.find((s) => miotShortName(s.type) === "environment");
-    }
-    if (
-      !primaryService &&
-      // If the spec names a service of its own device type we simply do not support that
-      // category yet — claiming the first writable `on` as a plug would fake a device
-      // (hood/airer would show up as an outlet).
-      !spec.services.some((s) => miotShortName(s.type) === devShort)
-    ) {
-      // Only genuine plug-like services may fall back to a plug card. macOS has no
-      // generic-on fallback at all, so accepting e.g. a bath-heater's `ptc-bath-heater`
-      // or `light` service here would fake a device the other platform drops (#98).
-      primaryService = spec.services.find(
-        (s) =>
-          ["outlet", "switch"].includes(miotShortName(s.type)) &&
-          s.properties.some((p) => miotShortName(p.type) === "on" && p.access.includes("write"))
-      );
-    }
+    const primaryService = primaryMiotService(spec);
     if (!primaryService) return null;
 
     const readProp = (s: MiotService, short: string, predicate?: (p: MiotProperty) => boolean) => {

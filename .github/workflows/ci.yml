@@ -109,6 +109,9 @@ jobs:
         # 这些检查与操作系统无关，放在 Ubuntu 上，避免占用 macOS 配额。
         # swift:6.1 容器里没有 python3，设计令牌和公钥一致性以前只在 macOS 上跑。
         run: bash scripts/check.sh --lint-only
+      - name: MIoT coverage report
+        run: |
+          { echo '```'; python3 scripts/miot_coverage_report.py; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
       - name: Test NAS deployment safety
         run: bash scripts/test_nas_setup.sh
 
