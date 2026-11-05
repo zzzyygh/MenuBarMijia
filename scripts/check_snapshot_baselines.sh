@@ -15,6 +15,13 @@ ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 cd "$ROOT"
 
 SOURCE_PREFIX="Sources/MenuBarMijiaApp/"
+# Files under SOURCE_PREFIX whose changes cannot reach any snapshot: AppKit event and key routing
+# that no snapshot test renders. Add a file only when nothing it defines draws into
+# `SnapshotTests`; a missed baseline is worse than one more `no-snapshot-change` label.
+NON_RENDERING=(
+    "Sources/MenuBarMijiaApp/MenuBarPanelController.swift"
+    "Sources/MenuBarMijiaApp/HotkeyAndNotificationManager.swift"
+)
 BASELINE_PREFIX="Tests/MenuBarMijiaAppTests/__Snapshots__/"
 PATHS_FILE=""
 POSITIONAL=()
@@ -55,7 +62,7 @@ $(git ls-files --others --exclude-standard)"
     fi
 fi
 
-SOURCES="$(printf '%s\n' "$CHANGED" | grep -E "^${SOURCE_PREFIX}" || true)"
+SOURCES="$(printf '%s\n' "$CHANGED" | grep -E "^${SOURCE_PREFIX}" | grep -vxF -f <(printf '%s\n' "${NON_RENDERING[@]}") || true)"
 BASELINES="$(printf '%s\n' "$CHANGED" | grep -E "^${BASELINE_PREFIX}" || true)"
 
 if [ -z "$SOURCES" ]; then
@@ -80,6 +87,7 @@ cat >&2 <<'MSG'
   1. gh workflow run ci.yml --ref <branch>
   2. gh run download <run-id> -n snapshot-baselines -D /tmp/snap
   3. 只把本次改动涉及的 PNG 拷进 Tests/MenuBarMijiaAppTests/__Snapshots__/SnapshotTests/ 并提交
-确实不影响渲染时，给 PR 加 no-snapshot-change 标签跳过本检查。
+确实不影响渲染时：这个文件永远画不进截图，就把它加进本脚本的 NON_RENDERING 名单；
+只是这一次不影响，就给 PR 加 no-snapshot-change 标签跳过本检查。
 MSG
 exit 1
