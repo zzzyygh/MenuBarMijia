@@ -168,6 +168,7 @@ public struct ControlCenterPanel: View {
         // Frequently opened utility: show immediately, including keyboard invocation.
         .onReceive(NotificationCenter.default.publisher(for: MenuBarPanelController.didShowNotification)) { _ in
             UndoAvailabilityTracker.shared.syncAction(at: store.lastAssistantActionAt)
+            LaunchAtLoginCoordinator.live(store: store).refresh()
             isPresented = true
         }
         .onAppear {
@@ -223,7 +224,7 @@ public struct ControlCenterPanel: View {
 
             // #180 review: after connecting, the lessons stay above the dashboard so search and
             // All Off/Undo can be tried while these instructions are still on screen.
-            if store.showsOnboardingChecklist {
+            if store.showsOnboardingChecklistCard {
                 OnboardingChecklistCard(
                     store: store,
                     onBeginSearch: { withAnimation(AppleMotion.snappySpring) { search.begin() } }

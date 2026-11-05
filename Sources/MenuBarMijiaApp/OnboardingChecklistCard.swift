@@ -27,7 +27,10 @@ struct OnboardingChecklistCard: View {
                 Spacer(minLength: 4)
 
                 Button {
-                    withAnimation(AppleMotion.snappySpring) { store.completeOnboarding() }
+                    withAnimation(AppleMotion.snappySpring) {
+                        store.completeOnboarding()
+                        store.dismissLaunchAtLoginSuggestion()
+                    }
                 } label: {
                     Image(systemName: "xmark")
                         .font(.system(size: 9.5, weight: .bold))
@@ -61,6 +64,51 @@ struct OnboardingChecklistCard: View {
                 Text(L10n.tr("三步都试过了，可以关掉这张清单。", "All three tried — close this card whenever you like."))
                     .font(.system(size: DesignTokens.TypeSize.micro))
                     .foregroundStyle(.secondary)
+            }
+
+            if store.shouldShowLaunchAtLoginSuggestion {
+                Divider()
+                    .overlay(Color.accentColor.opacity(0.15))
+
+                HStack(alignment: .top, spacing: 7) {
+                    Image(systemName: "power")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(Color.accentColor)
+                        .frame(width: 16, alignment: .center)
+                        .padding(.top, 1)
+
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(L10n.tr("开机自动启动", "Launch at Login"))
+                            .font(.system(size: DesignTokens.TypeSize.micro, weight: .semibold))
+                        Text(launchAtLoginDetail)
+                            .font(.system(size: DesignTokens.TypeSize.micro))
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+
+                    Spacer(minLength: 4)
+
+                    if store.launchAtLoginPolicy.needsManualApproval {
+                        Button(L10n.tr("去系统设置开启", "Open System Settings")) {
+                            launchAtLogin.openSystemSettings()
+                        }
+                        .buttonStyle(PillActionButtonStyle())
+                    } else {
+                        Button(L10n.tr("开启", "Turn On")) {
+                            withAnimation(AppleMotion.snappySpring) {
+                                launchAtLogin.setEnabled(true)
+                            }
+                        }
+                        .buttonStyle(PillActionButtonStyle(isSelected: true, tintColor: .accentColor))
+                    }
+
+                    Button(L10n.tr("跳过", "Skip")) {
+                        withAnimation(AppleMotion.snappySpring) {
+                            store.dismissLaunchAtLoginSuggestion()
+                        }
+                    }
+                    .buttonStyle(PillActionButtonStyle())
+                }
             }
         }
         .padding(10)
@@ -127,6 +175,21 @@ struct OnboardingChecklistCard: View {
 
     private var hotkeyLabel: String {
         HotkeySettingsState.shared.shortcut.displayString
+    }
+
+    @MainActor private var launchAtLogin: LaunchAtLoginCoordinator { .live(store: store) }
+
+    private var launchAtLoginDetail: String {
+        if store.launchAtLoginPolicy.needsManualApproval {
+            return L10n.tr(
+                "系统没有自动设置成功，请到系统设置里手动开启。",
+                "macOS could not enable it automatically. Turn it on in System Settings."
+            )
+        }
+        return L10n.tr(
+            "登录 Mac 后自动打开面板，不用再找菜单栏。",
+            "Open the panel automatically after you log in, without hunting for the menu bar."
+        )
     }
 
     private func title(for step: OnboardingStep) -> String {

@@ -1546,6 +1546,7 @@ struct MenuBarPanelControllerTests {
         defer { UserDefaults.standard.removePersistentDomain(forName: suite) }
         guard let defaults = UserDefaults(suiteName: suite) else { return }
         defaults.set(true, forKey: "has_completed_onboarding")
+        defaults.set(true, forKey: "launch_at_login_suggestion_dismissed")
         defaults.set(false, forKey: "automatically_checks_for_updates")
         defaults.set(false, forKey: "show_quick_actions_bar")
 
@@ -1766,6 +1767,7 @@ struct MenuBarPanelControllerTests {
         }
         let defaults = try #require(UserDefaults(suiteName: suite))
         defaults.set(true, forKey: "has_completed_onboarding")
+        defaults.set(true, forKey: "launch_at_login_suggestion_dismissed")
         defaults.set(AppLanguagePreference.zhHans.rawValue, forKey: "app_language")
         defaults.set(TemperatureUnitPreference.celsius.rawValue, forKey: TemperatureUnitPreference.storageKey)
         defaults.set(false, forKey: "show_quick_actions_bar")

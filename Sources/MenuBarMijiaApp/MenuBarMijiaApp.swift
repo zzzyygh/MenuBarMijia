@@ -13,6 +13,7 @@ struct MenuBarMijiaApp: App {
         KeychainUpgradeNotice.presentIfNeeded()
         let sharedStore = HomeStore.shared
         sharedStore.manualControlConfirmationHandler = ManualControlConfirmationPresenter.present
+        LaunchAtLoginCoordinator.live(store: sharedStore).refresh()
         KeychainUpgradeNotice.recordIfLoaded()
         // The menu-bar item, its label, tooltip, long press and panel all live in the AppKit
         // controller now (#56), so there is no `MenuBarExtra` scene left to host.

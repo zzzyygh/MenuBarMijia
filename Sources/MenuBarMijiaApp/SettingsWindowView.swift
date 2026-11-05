@@ -1,6 +1,5 @@
 import SwiftUI
 import AppKit
-import ServiceManagement
 import MijiaCore
 
 // MARK: - Settings Window (#42)
@@ -218,13 +217,13 @@ struct SettingsToggleRow: View {
 
 private struct GeneralSettingsTab: View {
     let store: HomeStore
-    @State private var launchAtLogin: Bool = (SMAppService.mainApp.status == .enabled)
     @State private var showNotificationRationale = false
     @AppStorage(SoundFeedback.storageKey) private var soundFeedbackEnabled = false
     @AppStorage(TemperatureUnitPreference.storageKey) private var temperatureUnitRaw = TemperatureUnitPreference.system.rawValue
 
     private var notifications: NotificationPermissionState { .shared }
     private var hotkey: HotkeySettingsState { .shared }
+    @MainActor private var launchAtLogin: LaunchAtLoginCoordinator { .live(store: store) }
 
     var body: some View {
         let _ = store.effectiveLanguage
@@ -345,26 +344,37 @@ private struct GeneralSettingsTab: View {
                         Text(L10n.tr("登录 Mac 时自动启动", "Launch at Login"))
                             .font(.system(size: DesignTokens.TypeSize.body))
                         Spacer()
-                        Toggle(L10n.tr("登录 Mac 时自动启动", "Launch at Login"), isOn: $launchAtLogin)
-                            .labelsHidden()
-                            .toggleStyle(.glass)
-                            .controlSize(.regular)
-                            .onChange(of: launchAtLogin) { _, newValue in
-                                do {
-                                    if newValue {
-                                        try SMAppService.mainApp.register()
-                                    } else {
-                                        try SMAppService.mainApp.unregister()
-                                    }
-                                } catch {
-                                    store.showToast(
-                                        L10n.tr("开机自启需要在应用程序目录运行", "Launch at Login requires running from /Applications"),
-                                        isError: true
-                                    )
-                                }
-                            }
+                        Toggle(L10n.tr("登录 Mac 时自动启动", "Launch at Login"), isOn: Binding(
+                            get: { store.launchAtLoginPolicy.settingsToggleIsOn },
+                            set: { launchAtLogin.setEnabled($0) }
+                        ))
+                        .labelsHidden()
+                        .toggleStyle(.glass)
+                        .controlSize(.regular)
                     }
                     .frame(minHeight: DesignTokens.Settings.rowHeight)
+
+                    if store.launchAtLoginPolicy.needsManualApproval {
+                        HStack(alignment: .top, spacing: 8) {
+                            Label(
+                                L10n.tr(
+                                    "系统没有自动设置成功，请到系统设置里手动开启。",
+                                    "macOS could not enable it automatically. Turn it on in System Settings."
+                                ),
+                                systemImage: "exclamationmark.triangle.fill"
+                            )
+                            .font(.system(size: DesignTokens.TypeSize.caption))
+                            .foregroundStyle(.orange)
+                            .fixedSize(horizontal: false, vertical: true)
+
+                            Spacer(minLength: 8)
+
+                            Button(L10n.tr("去系统设置开启", "Open System Settings")) {
+                                launchAtLogin.openSystemSettings()
+                            }
+                            .buttonStyle(PillActionButtonStyle())
+                        }
+                    }
                 }
 
                 SettingsSection(title: L10n.tr("全局快捷键", "Global Shortcut")) {
@@ -525,6 +535,12 @@ private struct GeneralSettingsTab: View {
         }
         .task {
             await HotkeyAndNotificationManager.shared.refreshNotificationPermission()
+        }
+        .onAppear {
+            launchAtLogin.refresh()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            launchAtLogin.refresh()
         }
     }
 

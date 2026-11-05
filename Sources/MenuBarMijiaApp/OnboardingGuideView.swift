@@ -54,6 +54,7 @@ public struct OnboardingGuideView: View {
                 .padding(.vertical, 9)
         }
         .onAppear {
+            launchAtLogin.refresh()
             haURLDraft = store.serverURLString
             haTokenDraft = KeychainHelper.loadToken()
             let currentBase = store.assistantConfig.baseURL
@@ -75,6 +76,9 @@ public struct OnboardingGuideView: View {
                     }
                 }
             }
+        }
+        .onChange(of: store.hasConfiguredHomeSource) { _, configured in
+            if configured { launchAtLogin.applyOnboardingChoiceIfNeeded() }
         }
     }
 
@@ -122,6 +126,7 @@ public struct OnboardingGuideView: View {
             .help(L10n.tr("切换为英文界面 / Switch to English", "Switch to Chinese / 切换为中文界面"))
 
             Button(L10n.tr("跳过", "Skip")) {
+                launchAtLogin.applyOnboardingChoiceIfNeeded()
                 withAnimation(AppleMotion.snappySpring) {
                     store.completeOnboarding()
                 }
@@ -303,6 +308,53 @@ public struct OnboardingGuideView: View {
                         }
                         .buttonStyle(PillActionButtonStyle(isSelected: true, tintColor: .accentColor))
                     }
+                }
+            }
+
+            Divider().padding(.vertical, 2)
+
+            HStack(alignment: .top, spacing: 9) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(L10n.tr("登录 Mac 时自动启动", "Launch at Login"))
+                        .font(.system(size: 11.5, weight: .semibold))
+                    Text(L10n.tr(
+                        "菜单栏工具常驻：重启 Mac 后自动出现，不用再去应用程序里找。",
+                        "Keep the menu-bar tool around after a restart without opening Applications again."
+                    ))
+                    .font(.system(size: 10))
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                }
+
+                Spacer(minLength: 8)
+
+                Toggle("", isOn: Binding(
+                    get: { store.launchAtLoginOnboardingChoice },
+                    set: { store.launchAtLoginOnboardingChoice = $0 }
+                ))
+                .labelsHidden()
+                .toggleStyle(.glass)
+            }
+
+            if store.launchAtLoginPolicy.needsManualApproval {
+                HStack(alignment: .top, spacing: 8) {
+                    Label(
+                        L10n.tr(
+                            "系统没有自动设置成功，请到系统设置里手动开启。",
+                            "macOS could not enable it automatically. Turn it on in System Settings."
+                        ),
+                        systemImage: "exclamationmark.triangle.fill"
+                    )
+                    .font(.system(size: 10.5))
+                    .foregroundStyle(.orange)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                    Spacer(minLength: 8)
+
+                    Button(L10n.tr("去系统设置开启", "Open System Settings")) {
+                        launchAtLogin.openSystemSettings()
+                    }
+                    .buttonStyle(PillActionButtonStyle())
                 }
             }
         }
@@ -670,6 +722,7 @@ public struct OnboardingGuideView: View {
                 if !trimmedKey.isEmpty || selectedPreset != currentPreset {
                     persistOnboardingAssistantDraft()
                 }
+                launchAtLogin.applyOnboardingChoiceIfNeeded()
                 withAnimation(AppleMotion.snappySpring) {
                     store.completeOnboarding()
                 }
@@ -689,6 +742,8 @@ public struct OnboardingGuideView: View {
     private var hotkeyLabel: String {
         HotkeySettingsState.shared.shortcut.displayString
     }
+
+    @MainActor private var launchAtLogin: LaunchAtLoginCoordinator { .live(store: store) }
 
     private func stepBadge(_ number: String, isDone: Bool) -> some View {
         ZStack {
