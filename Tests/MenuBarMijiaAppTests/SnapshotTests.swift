@@ -3,7 +3,7 @@ import Foundation
 import SwiftUI
 import AppKit
 import SnapshotTesting
-import MijiaCore
+@testable import MijiaCore
 @testable import MenuBarMijiaApp
 
 /// UI snapshots for the menu-bar panel and the five device-card families (#46).
@@ -61,6 +61,24 @@ struct SnapshotTests {
             snapshotReady(ControlCenterPanel(store: fixture.store)),
             size: CGSize(width: 376, height: 560),
             named: "panel-mi-session-expired-zh-light"
+        )
+    }
+
+    @Test("Panel asks before sending the HA token over public plain http, and keeps the declined reason", arguments: [
+        (HAPlaintextPrompt.asking("http://203.0.113.5:8123"), "panel-ha-plaintext-asking-zh-light"),
+        (HAPlaintextPrompt.declined("http://203.0.113.5:8123"), "panel-ha-plaintext-declined-zh-light"),
+    ])
+    func panelHAPlaintextSnapshot(prompt: HAPlaintextPrompt, name: String) async throws {
+        let fixture = try await SnapshotFixture()
+        defer { fixture.restore() }
+
+        UserDefaults.standard.set(AppAppearance.system.rawValue, forKey: AppAppearance.storageKey)
+        fixture.store.haPlaintextPrompt = prompt
+
+        assertRendered(
+            snapshotReady(ControlCenterPanel(store: fixture.store)),
+            size: CGSize(width: 376, height: 560),
+            named: name
         )
     }
 
