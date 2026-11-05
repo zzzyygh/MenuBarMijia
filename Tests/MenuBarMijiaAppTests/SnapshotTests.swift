@@ -361,7 +361,8 @@ struct SnapshotTests {
         // before offscreen windows and hosting views can be created.
         _ = NSApplication.shared
 
-        let hosting = NSHostingView(rootView: view)
+        // A control that holds focus must not draw its ring into the bitmap (#323).
+        let hosting = NSHostingView(rootView: view.focusEffectDisabled())
         hosting.frame = NSRect(origin: .zero, size: size)
 
         let window = NSWindow(
@@ -373,7 +374,6 @@ struct SnapshotTests {
         window.isReleasedWhenClosed = false
         window.appearance = NSAppearance(named: scheme == .dark ? .darkAqua : .aqua)
         window.contentView = hosting
-        SnapshotWindow.prepareForCapture(window)
 
         guard let bitmap = NSBitmapImageRep(
             bitmapDataPlanes: nil,
@@ -391,6 +391,7 @@ struct SnapshotTests {
             return
         }
         bitmap.size = size
+        SnapshotWindow.prepareForCapture(window)
         hosting.cacheDisplay(in: hosting.bounds, to: bitmap)
         let image = NSImage(size: size)
         image.addRepresentation(bitmap)
@@ -534,15 +535,15 @@ private struct SnapshotFixture {
 /// Brings the offscreen window the snapshot harness captures into its final state.
 @MainActor
 enum SnapshotWindow {
-    /// Lays the window out, then takes keyboard focus away before drawing (#323). AppKit may hand
-    /// focus to the first focusable control (the header mic button) during layout or later, and a
-    /// focused control draws its ring into the bitmap; dropping focus after layout makes the
-    /// capture independent of that timing.
+    /// Lays the window out and draws it, then takes keyboard focus away as the last step before the
+    /// capture (#323). AppKit or SwiftUI may hand focus to the first focusable control (the header
+    /// mic button) during any layout or display pass, so clearing it last is what makes the capture
+    /// independent of that timing. Call it immediately before `cacheDisplay`.
     static func prepareForCapture(_ window: NSWindow) {
         window.layoutIfNeeded()
         window.contentView?.layoutSubtreeIfNeeded()
-        window.makeFirstResponder(nil)
         window.contentView?.displayIfNeeded()
         window.displayIfNeeded()
+        window.makeFirstResponder(nil)
     }
 }
