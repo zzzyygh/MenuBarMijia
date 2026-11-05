@@ -44,6 +44,7 @@ When adding or changing spoken command, delay, undo, habit-memory, proactive-sug
 - Never let one platform silently diverge on Chinese or English command parsing, delay limits (`<= 86400s`), unknown-word fallback (`nil` / `null`), MIoT `0`/`1` boolean coercion, multi-service property resolution, or command range/step clamping.
 - GrokBall emotion priority and radial slot order live in [`Tests/Fixtures/grok_ball_golden.json`](Tests/Fixtures/grok_ball_golden.json), asserted by both `GoldenCorpusTests` and `windows/tests/core.test.ts`. Preserve the upstream MIT notice when updating the bundled engine or native geometry.
 - [`Tests/Fixtures/confirmation_golden.json`](Tests/Fixtures/confirmation_golden.json) is the shared confirmation table asserted by `GoldenCorpusTests` and `windows/tests/core.test.ts`.
+- [`Tests/Fixtures/miot_coverage_golden.json`](Tests/Fixtures/miot_coverage_golden.json) pins how MIoT synthesis classifies one real public spec per device type (`miot_coverage_specs.json`), asserted by `MiotCoverageBaselineTests` and `windows/tests/miotCoverage.test.ts`. A synthesis change that moves a spec between categories must re-record it (`RECORD_MIOT_COVERAGE=1 swift test --filter MiotCoverageBaselineTests`); `windowsDivergences` lists the specs Windows still classifies differently.
 
 ## 7. Scheduled Command Persistence & Missed-Timer Confirmation
 

@@ -107,6 +107,14 @@ struct MiotCoverageBaselineTests {
         #expect(measured.summary.deviceTypes == 177)
         #expect(measured.models["czmydz.curtain.myf5"]?.deviceType == "curtain")
         #expect(measured.models["xiaomi.fishbowl.m200"]?.deviceType == "fish-tank")
+        let specs = try JSONDecoder().decode(
+            [String: MiotDeviceSpec].self,
+            from: Data(contentsOf: coverageFixture("Tests/Fixtures/miot_coverage_specs.json"))
+        )
+        let curtainServices = specs["czmydz.curtain.myf5"]?.services(named: "curtain").count
+        #expect(curtainServices == 2)
+        let withoutOwnService = specs.values.filter { $0.services(named: $0.shortName).isEmpty }
+        #expect(!withoutOwnService.isEmpty)
     }
 }
 

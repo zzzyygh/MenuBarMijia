@@ -2,7 +2,10 @@
 """Print the MIoT coverage baseline (#295) from Tests/Fixtures/miot_coverage_golden.json.
 
 Both platform test suites assert that synthesis matches this file, so the report is the
-current state of the code. Counts are per fixture spec (1-2 per device type), not per model.
+current state of the code. Counts are per fixture spec (1-2 per device type), not per model,
+so they are not comparable with the model-weighted estimates in docs/research.
+"Unexposed" counts writable bool/enum/range properties the card never reads; a property it
+reads without offering a control counts as exposed, so the figure is a lower bound.
 """
 import json
 import sys
