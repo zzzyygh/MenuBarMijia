@@ -526,6 +526,39 @@ public enum CoverSubtype: String, Equatable, Sendable {
     public init(miotServiceShortName: String?) {
         self = Self.miotServiceSubtypes[miotServiceShortName ?? ""] ?? .windowOpener
     }
+
+    /// Maps a Home Assistant `cover.*` entity to its `CoverDevice` risk class (#280).
+    /// Explicit `device_class` wins; when absent or unrecognized, falls back to name keywords and
+    /// finally to `.windowOpener` (which requires confirmation before opening).
+    public init(haDeviceClass: String?, name: String) {
+        if let rawClass = haDeviceClass?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
+           !rawClass.isEmpty {
+            switch rawClass {
+            case "curtain", "blind", "shade", "shutter", "awning", "damper":
+                self = .curtain
+                return
+            case "window":
+                self = .windowOpener
+                return
+            case "garage", "gate", "door":
+                self = .garageDoor
+                return
+            default:
+                break
+            }
+        }
+        let lower = name.lowercased()
+        if name.contains("帘") || lower.contains("curtain") || lower.contains("blind") {
+            self = .curtain
+        } else if name.contains("车库") || name.contains("大门")
+                    || lower.contains("garage") || lower.contains("gate") {
+            self = .garageDoor
+        } else if name.contains("窗") || lower.contains("window") {
+            self = .windowOpener
+        } else {
+            self = .windowOpener
+        }
+    }
 }
 
 /// What the motor reports it is doing. A tap stops a moving cover and otherwise moves it.

@@ -541,12 +541,32 @@ public actor HAWebSocketProvider: HomeProvider {
 
         case .setSelectOption(let eid, let option):
             let selectEid = eid.split(separator: "|").last.map(String.init) ?? eid
+            if selectEid.hasPrefix("cover.") {
+                let service: String
+                switch option.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+                case "open", "打开":
+                    service = "open_cover"
+                case "close", "关闭":
+                    service = "close_cover"
+                case "pause", "stop", "暂停":
+                    service = "stop_cover"
+                default:
+                    service = "stop_cover"
+                }
+                return ("cover", service, ["entity_id": selectEid])
+            }
             return ("select", "select_option", [
                 "entity_id": selectEid,
                 "option": option
             ])
 
         case .setNumberValue(let eid, let value):
+            if eid.hasPrefix("cover.") {
+                return ("cover", "set_cover_position", [
+                    "entity_id": eid,
+                    "position": max(0, min(100, Int(value.rounded())))
+                ])
+            }
             return ("number", "set_value", [
                 "entity_id": eid,
                 "value": value

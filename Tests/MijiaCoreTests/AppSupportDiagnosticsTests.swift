@@ -137,6 +137,7 @@ struct AppSupportDiagnosticsTests {
     func unsupportedHomeAssistant() {
         let lightDevice = HADeviceEntry(id: "dev-light", area_id: "kitchen", name: "厨房灯", model: "yeelink.light.ceiling")
         let coverDevice = HADeviceEntry(id: "dev-cover", area_id: "kitchen", name: "窗帘", model: "tuya.cover")
+        let valveDevice = HADeviceEntry(id: "dev-valve", area_id: "kitchen", name: "水阀", model: "tuya.valve")
         let hiddenDevice = HADeviceEntry(id: "dev-hidden", area_id: "kitchen", name: "空气炸锅", model: "acme.fryer")
         let disabledDevice = HADeviceEntry(id: "dev-disabled", area_id: "kitchen", name: "旧设备", model: "acme.old", disabled_by: "user")
         let dlnaDevice = HADeviceEntry(id: "dev-dlna", area_id: "kitchen", name: "电视", model: "hyperDLNA")
@@ -144,6 +145,7 @@ struct AppSupportDiagnosticsTests {
         let entities = [
             HAEntityEntry(entity_id: "light.kitchen", device_id: "dev-light"),
             HAEntityEntry(entity_id: "cover.curtain", device_id: "dev-cover"),
+            HAEntityEntry(entity_id: "valve.kitchen", device_id: "dev-valve"),
             HAEntityEntry(entity_id: "switch.fryer", device_id: "dev-hidden", disabled_by: "user"),
             HAEntityEntry(entity_id: "switch.old", device_id: "dev-disabled"),
             HAEntityEntry(entity_id: "media_player.dlna", device_id: "dev-dlna"),
@@ -151,21 +153,24 @@ struct AppSupportDiagnosticsTests {
         let states = [
             HAEntityState(entityId: "light.kitchen", state: "on"),
             HAEntityState(entityId: "cover.curtain", state: "open"),
+            HAEntityState(entityId: "valve.kitchen", state: "open"),
             HAEntityState(entityId: "switch.fryer", state: "off"),
             HAEntityState(entityId: "switch.old", state: "off"),
             HAEntityState(entityId: "media_player.dlna", state: "idle"),
         ]
 
-        let home = Self.haHome(devices: [lightDevice, coverDevice, hiddenDevice, disabledDevice, dlnaDevice], entities: entities, states: states)
+        let allDevices = [lightDevice, coverDevice, valveDevice, hiddenDevice, disabledDevice, dlnaDevice]
+        let home = Self.haHome(devices: allDevices, entities: entities, states: states)
         let skipped = UnsupportedDeviceCollector.homeAssistant(
-            devices: [lightDevice, coverDevice, hiddenDevice, disabledDevice, dlnaDevice],
+            devices: allDevices,
             entities: entities,
             synthesized: home
         )
 
         let byId = Dictionary(uniqueKeysWithValues: skipped.map { ($0.id, $0.reason) })
         #expect(byId["dev-light"] == nil)
-        #expect(byId["dev-cover"] == .unsupportedEntities)
+        #expect(byId["dev-cover"] == nil)
+        #expect(byId["dev-valve"] == .unsupportedEntities)
         #expect(byId["dev-hidden"] == .noActiveEntities)
         #expect(byId["dev-disabled"] == .deviceDisabled)
         #expect(byId["dev-dlna"] == .filteredDuplicate)

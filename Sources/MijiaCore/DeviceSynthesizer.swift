@@ -315,9 +315,10 @@ public enum DeviceSynthesizer {
         for (eid, state) in states {
             guard eid.hasPrefix("light.") || eid.hasPrefix("climate.")
                     || eid.hasPrefix("fan.") || eid.hasPrefix("vacuum.")
-                    || eid.hasPrefix("camera.") || eid.hasPrefix("switch.")
-                    || eid.hasPrefix("media_player.") || eid.hasPrefix("sensor.")
-                    || eid.hasPrefix("binary_sensor.") || eid.hasPrefix("button.") else { continue }
+                    || eid.hasPrefix("camera.") || eid.hasPrefix("cover.")
+                    || eid.hasPrefix("switch.") || eid.hasPrefix("media_player.")
+                    || eid.hasPrefix("sensor.") || eid.hasPrefix("binary_sensor.")
+                    || eid.hasPrefix("button.") else { continue }
             let entity = entityById[eid]
             guard entity?.disabled_by == nil, entity?.hidden_by == nil else { continue }
             if let deviceId = entity?.device_id,
@@ -900,6 +901,78 @@ public enum DeviceSynthesizer {
             }
             return eid.contains("battery_level")
         }
+
+        // 5c. Cover (curtain, blind, window opener, garage door / gate, #280)
+        let primaryCovers = entities.filter { entity in
+            entity.entity_id.hasPrefix("cover.")
+                && entity.entity_category != "config"
+                && entity.entity_category != "diagnostic"
+        }
+        if let coverEnt = primaryCovers.first,
+           let st = states[coverEnt.entity_id] {
+            let deviceClass = st.attributes["device_class"]?.stringValue
+            let friendlyName = st.attributes["friendly_name"]?.stringValue
+                ?? coverEnt.name
+                ?? coverEnt.original_name
+                ?? ""
+            let nameForInference = (name.isEmpty || name == "智能设备") ? friendlyName : name
+            let subtype = CoverSubtype(haDeviceClass: deviceClass, name: nameForInference)
+            let rawPosition = st.attributes["current_position"]?.doubleValue
+                .flatMap(Self.roundedInt)
+                .map { max(0, min(100, $0)) }
+            let stateLower = st.state.lowercased()
+            let positionPercent: Int? = if let rawPosition {
+                rawPosition
+            } else if stateLower == "open" {
+                100
+            } else if stateLower == "closed" {
+                0
+            } else {
+                nil
+            }
+            let supportedFeatures = st.attributes["supported_features"]?.intValue
+            let hasFeatureMask = (supportedFeatures ?? 0) > 0
+            let openDescription: String? = (!hasFeatureMask || (supportedFeatures! & 1) != 0) ? "Open" : nil
+            let closeDescription: String? = (!hasFeatureMask || (supportedFeatures! & 2) != 0) ? "Close" : nil
+            let positionWritable: Bool = if hasFeatureMask {
+                (supportedFeatures! & 4) != 0
+            } else {
+                rawPosition != nil
+            }
+            let pauseDescription: String? = (!hasFeatureMask || (supportedFeatures! & 8) != 0) ? "Pause" : nil
+            let motion: CoverMotion = switch stateLower {
+            case "opening": .opening
+            case "closing": .closing
+            default: .stopped
+            }
+            let batSt = batId.flatMap { states[$0] }
+            let batteryPercent = (batSt?.isAvailable == true ? batSt.flatMap { Double($0.state).flatMap(Self.roundedInt) } : nil)
+                ?? st.attributes["battery_level"]?.intValue
+                ?? st.attributes["battery"]?.intValue
+
+            return SmartDevice(
+                id: deviceId,
+                name: name,
+                roomId: roomId,
+                roomName: roomName,
+                model: model,
+                isOnline: st.isAvailable,
+                kind: .cover(
+                    CoverSpec(
+                        entityId: coverEnt.entity_id,
+                        subtype: subtype,
+                        positionPercent: positionPercent,
+                        positionWritable: positionWritable,
+                        openDescription: openDescription,
+                        closeDescription: closeDescription,
+                        pauseDescription: pauseDescription,
+                        batteryPercent: batteryPercent,
+                        motion: motion
+                    )
+                )
+            )
+        }
+
         let primarySwitches = entities.filter { entity in
             guard entity.entity_id.hasPrefix("switch."),
                   entity.entity_category != "config", entity.entity_category != "diagnostic" else { return false }
@@ -1194,7 +1267,7 @@ public enum DeviceSynthesizer {
     public static func cleanDeviceName(_ raw: String, roomName: String, model: String) -> String {
         var s = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         // Strip verbose duplicate suffixes appended by Home Assistant entity naming
-        for suffix in ["  灯", "  电暖器", "  风扇", "  音箱", "  电视", "  开关 开关"] {
+        for suffix in ["  灯", "  电暖器", "  风扇", "  音箱", "  电视", "  开关 开关", "  窗帘"] {
             if s.hasSuffix(suffix) {
                 s = String(s.dropLast(suffix.count)).trimmingCharacters(in: .whitespacesAndNewlines)
             }
