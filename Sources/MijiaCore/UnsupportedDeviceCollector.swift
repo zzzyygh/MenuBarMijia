@@ -90,12 +90,19 @@ public enum UnsupportedDeviceCollector {
     public static func homeAssistant(
         devices: [HADeviceEntry],
         entities: [HAEntityEntry],
+        states: [String: HAEntityState] = [:],
         synthesized: SynthesizedHome
     ) -> [UnsupportedDevice] {
         let synthesizedIds = Set(synthesized.devices.map(\.id))
         var activeEntitiesByDevice: [String: Int] = [:]
+        // A doorbell `event` entity is handled as a ring source (#308), not an unsupported entity.
+        var doorbellDevices: Set<String> = []
         for entity in entities {
             guard entity.disabled_by == nil, entity.hidden_by == nil, let deviceId = entity.device_id else { continue }
+            if let state = states[entity.entity_id], DoorbellRing.isDoorbellEvent(state) {
+                doorbellDevices.insert(deviceId)
+                continue
+            }
             activeEntitiesByDevice[deviceId, default: 0] += 1
         }
 
@@ -113,7 +120,9 @@ public enum UnsupportedDeviceCollector {
                 continue
             }
             let activeCount = activeEntitiesByDevice[device.id] ?? 0
-            if activeCount == 0 {
+            if activeCount == 0, doorbellDevices.contains(device.id) {
+                continue
+            } else if activeCount == 0 {
                 out.append(UnsupportedDevice(id: device.id, name: name, model: model, reason: .noActiveEntities))
             } else if !synthesizedIds.contains(device.id) {
                 out.append(UnsupportedDevice(id: device.id, name: name, model: model, reason: .unsupportedEntities))

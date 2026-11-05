@@ -19,14 +19,18 @@ public struct DeviceMergeResult: Equatable, Sendable {
     public var routes: [String: DeviceMergeRoute]
     public var canonical: CanonicalDeviceRegistry
     public var rooms: RoomIdentityRegistry
+    /// Home Assistant device id → the merged card id, whichever source won the card.
+    public var haCanonicalIDs: [String: String]
 
     public init(
         home: SynthesizedHome,
         routes: [String: DeviceMergeRoute],
         canonical: CanonicalDeviceRegistry,
-        rooms: RoomIdentityRegistry
+        rooms: RoomIdentityRegistry,
+        haCanonicalIDs: [String: String] = [:]
     ) {
         self.home = home
+        self.haCanonicalIDs = haCanonicalIDs
         self.routes = routes
         self.canonical = canonical
         self.rooms = rooms
@@ -189,6 +193,7 @@ public enum DeviceDeduplicator {
         var pairedDeviceIDs: Set<String> = []
         /// Mi source did → the card id it merges into, so group ownership survives pairing with HA.
         var miCanonicalIDs: [String: String] = [:]
+        var haCanonicalIDs: [String: String] = [:]
 
         for card in cards {
             var card = card
@@ -221,8 +226,12 @@ public enum DeviceDeduplicator {
                 card.winner = pinnedCandidate
             }
             if wasPaired { pairedDeviceIDs.insert(canonicalID) }
-            for candidate in [card.winner, card.other].compactMap({ $0 }) where candidate.backend == .xiaomiCloud {
-                miCanonicalIDs[candidate.device.id] = canonicalID
+            for candidate in [card.winner, card.other].compactMap({ $0 }) {
+                switch candidate.backend {
+                case .xiaomiCloud: miCanonicalIDs[candidate.device.id] = canonicalID
+                case .homeAssistant: haCanonicalIDs[candidate.device.id] = canonicalID
+                default: break
+                }
             }
 
             var merged = mergedDevice(for: card)
@@ -307,7 +316,8 @@ public enum DeviceDeduplicator {
             home: home,
             routes: routes,
             canonical: updatedCanonical,
-            rooms: updatedRooms
+            rooms: updatedRooms,
+            haCanonicalIDs: haCanonicalIDs
         )
     }
 

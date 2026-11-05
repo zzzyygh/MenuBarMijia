@@ -121,6 +121,8 @@ struct DualSourceMergeTests {
         let device = try #require(result.home.devices.first)
         #expect(result.routes[device.id]?.backend == .xiaomiCloud)
         #expect(result.routes[device.id]?.sourceDeviceID == "1105610385")
+        // A doorbell ring from the HA side must still find this card when Mi wins it (#308).
+        #expect(result.haCanonicalIDs[haCamera.id] == device.id)
     }
 
     @Test("A Home Assistant camera that exposes a stream keeps the normal tie-break")

@@ -133,6 +133,7 @@ final class UnsupportedDeviceScanner {
         return UnsupportedDeviceCollector.homeAssistant(
             devices: registry.devices,
             entities: registry.entities,
+            states: registry.states,
             synthesized: home
         )
     }

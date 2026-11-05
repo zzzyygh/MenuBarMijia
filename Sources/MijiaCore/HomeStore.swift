@@ -165,6 +165,27 @@ public final class HomeStore {
         didSet { userDefaults.set(enableSafetyAlerts, forKey: "enable_safety_alerts") }
     }
 
+    /// Open the doorbell's live camera when it rings (#308). Off by default: privacy and interruption.
+    public var doorbellAutoPopup: Bool {
+        didSet { userDefaults.set(doorbellAutoPopup, forKey: "doorbell_auto_popup") }
+    }
+
+    /// Play a chime when a doorbell popup opens (#308). Off by default.
+    public var doorbellChime: Bool {
+        didSet { userDefaults.set(doorbellChime, forKey: "doorbell_chime") }
+    }
+
+    /// Seconds before a doorbell popup closes itself (#308).
+    public var doorbellPopupSeconds: Int {
+        didSet { userDefaults.set(doorbellPopupSeconds, forKey: "doorbell_popup_seconds") }
+    }
+
+    /// Recent doorbell presses, newest first, including ones that did not open a window (#308).
+    public internal(set) var recentDoorbellRings: [DoorbellRing] = []
+    var handledDoorbellRingKeys: Set<String> = []
+    /// Installed by the app to open the live camera window for a ring.
+    public var onDoorbellPopup: (@MainActor (DoorbellPopup) -> Void)?
+
     /// Refuse user-initiated device control while the Mac screen is locked (#143). Defaults on:
     /// the only paths that can still fire while locked are external ones (URL links, App Intents,
     /// assistant commands), and automation/scheduled rules stay exempt. Settings can turn it off.
@@ -661,6 +682,9 @@ public final class HomeStore {
         self.hideGroupedLights = boolOrDefaultTrue("hide_grouped_lights")
         self.enableGlobalHotkey = boolOrDefaultTrue("enable_global_hotkey")
         self.enableSafetyAlerts = boolOrDefaultTrue("enable_safety_alerts")
+        self.doorbellAutoPopup = ud.bool(forKey: "doorbell_auto_popup")
+        self.doorbellChime = ud.bool(forKey: "doorbell_chime")
+        self.doorbellPopupSeconds = (ud.object(forKey: "doorbell_popup_seconds") as? Int) ?? Self.defaultDoorbellPopupSeconds
         self.blockControlWhileLocked = boolOrDefaultTrue("block_control_while_locked")
         self.sensorAlertsOnlyWhenAway = ud.bool(forKey: Self.sensorAlertsOnlyWhenAwayKey)
         self.sensorAlertPreferences = SensorAlertKind.allCases.reduce(into: [SensorAlertKind: Bool]()) { preferences, kind in

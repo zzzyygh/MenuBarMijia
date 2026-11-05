@@ -65,6 +65,7 @@ public final class CameraLivePanelController: NSObject, NSWindowDelegate {
     private var snapshotLoopTask: Task<Void, Never>?
     private var mjpegSession: URLSession?
     private var closeReleaseTask: Task<Void, Never>?
+    private var doorbellDismissTask: Task<Void, Never>?
     private var isClosing = false
     private let snapshotSession: URLSession = {
         let cfg = URLSessionConfiguration.ephemeral
@@ -83,6 +84,34 @@ public final class CameraLivePanelController: NSObject, NSWindowDelegate {
         store.onOpenCameraLiveView = { [weak self] device in
             self?.present(device: device)
         }
+        store.onDoorbellPopup = { [weak self] popup in
+            self?.presentDoorbell(popup)
+        }
+    }
+
+    /// Opens the ringing doorbell's camera at the top right and closes it again after the user's
+    /// delay, unless they closed it, switched camera or moved it to picture-in-picture first (#308).
+    private func presentDoorbell(_ popup: DoorbellPopup) {
+        guard let store else { return }
+        let wasVisible = isVisible
+        if popup.playsChime { NSSound(named: "Glass")?.play() }
+        store.openCameraLiveView(popup.deviceId)
+        guard activeDeviceId == popup.deviceId, let panel = panelWindow, panel.isVisible else { return }
+        if !wasVisible {
+            panel.setFrame(Self.topRightFrame(for: panel.frame.size), display: true)
+        }
+        doorbellDismissTask?.cancel()
+        doorbellDismissTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: popup.dismissAfter)
+            guard !Task.isCancelled, let self, self.isVisible, self.activeDeviceId == popup.deviceId,
+                  !self.isPictureInPictureActive else { return }
+            self.closePanel()
+        }
+    }
+
+    private static func topRightFrame(for size: NSSize) -> NSRect {
+        let visible = NSScreen.main?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
+        return NSRect(origin: NSPoint(x: visible.maxX - size.width - 24, y: visible.maxY - size.height - 48), size: size)
     }
 
     public var isVisible: Bool {
@@ -147,6 +176,8 @@ public final class CameraLivePanelController: NSObject, NSWindowDelegate {
         defer { isClosing = false }
 
         closeReleaseTask?.cancel()
+        doorbellDismissTask?.cancel()
+        doorbellDismissTask = nil
         setURLFieldActive(false)
         if let frame = panelWindow?.frame {
             UserDefaults.standard.set(NSStringFromRect(frame), forKey: Self.frameStorageKey)

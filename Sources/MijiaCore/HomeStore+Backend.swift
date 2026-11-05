@@ -187,6 +187,9 @@ extension HomeStore {
         case .sourceStatusesChanged(let statuses):
             if sourceStatuses != statuses { sourceStatuses = statuses }
 
+        case .doorbellRang(let ring):
+            handleDoorbellRing(ring)
+
         case .sessionExpired(let rejected):
             if let updated = MiSessionStore.markRejected(rejected, defaults: userDefaults) {
                 if let idx = miAccounts.firstIndex(where: {

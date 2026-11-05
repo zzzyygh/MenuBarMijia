@@ -438,6 +438,34 @@ private struct GeneralSettingsTab: View {
                         )
                     )
 
+                    SettingsToggleRow(
+                        title: L10n.tr("门铃响时自动弹出摄像头画面", "Show the doorbell camera when it rings"),
+                        isOn: Binding(get: { store.doorbellAutoPopup }, set: { store.doorbellAutoPopup = $0 })
+                    )
+
+                    SettingsToggleRow(
+                        title: L10n.tr("门铃响时播放提示音", "Play a chime when the doorbell rings"),
+                        isOn: Binding(get: { store.doorbellChime }, set: { store.doorbellChime = $0 })
+                    )
+                    .disabled(!store.doorbellAutoPopup)
+
+                    HStack(spacing: 6) {
+                        Text(L10n.tr("门铃画面自动收起", "Close the doorbell view after"))
+                            .font(.system(size: DesignTokens.TypeSize.caption))
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        Stepper(
+                            value: Binding(get: { store.doorbellPopupSeconds }, set: { store.doorbellPopupSeconds = $0 }),
+                            in: HomeStore.doorbellPopupSecondsRange,
+                            step: 15
+                        ) {
+                            Text(L10n.tr("\(store.doorbellPopupSeconds) 秒", "\(store.doorbellPopupSeconds) s"))
+                                .font(.system(size: DesignTokens.TypeSize.caption))
+                        }
+                        .fixedSize()
+                    }
+                    .disabled(!store.doorbellAutoPopup)
+
                     NotificationPermissionRow()
 
                     if showNotificationRationale {

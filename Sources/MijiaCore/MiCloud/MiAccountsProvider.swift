@@ -182,7 +182,7 @@ public actor MiAccountsProvider: HomeProvider {
             if resetSelection(ownedBy: accountId) {
                 await refreshNow()
             }
-        case .sourceStatusesChanged:
+        case .sourceStatusesChanged, .doorbellRang:
             break
         case .snapshotUpdated(let home):
             snapshots[accountId] = home

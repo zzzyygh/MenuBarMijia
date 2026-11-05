@@ -24,6 +24,7 @@ public actor DualSourceHomeProvider: HomeProvider {
     private var canonical: CanonicalDeviceRegistry
     private var rooms = RoomIdentityRegistry()
     private var routes: [String: DeviceMergeRoute] = [:]
+    private var haCanonicalIDs: [String: String] = [:]
     private var activeCameraRoutes: [String: DeviceMergeRoute] = [:]
 
     public init(
@@ -94,6 +95,12 @@ public actor DualSourceHomeProvider: HomeProvider {
 
         case .sessionExpired(let session):
             continuation?.yield(.sessionExpired(session))
+
+        case .doorbellRang(var ring):
+            if backend == .homeAssistant, let cardID = haCanonicalIDs[ring.deviceId] {
+                ring.deviceId = cardID
+            }
+            continuation?.yield(.doorbellRang(ring))
 
         case .sourceStatusesChanged:
             break
@@ -173,6 +180,7 @@ public actor DualSourceHomeProvider: HomeProvider {
         }
         rooms = result.rooms
         routes = result.routes
+        haCanonicalIDs = result.haCanonicalIDs
         for (deviceID, activeRoute) in activeCameraRoutes {
             let nextRoute = result.routes[deviceID]
             if nextRoute?.backend != activeRoute.backend || nextRoute?.sourceDeviceID != activeRoute.sourceDeviceID {

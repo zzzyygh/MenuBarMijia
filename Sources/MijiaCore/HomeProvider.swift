@@ -48,6 +48,8 @@ public enum HomeProviderEvent: Sendable {
     case sourceStatusesChanged([HomeBackend: ConnectionStatus])
     /// The cloud rejected the session; the store persists it as the session's end (#181).
     case sessionExpired(MiSession)
+    /// A Home Assistant doorbell was pressed (#308).
+    case doorbellRang(DoorbellRing)
 }
 
 public enum HomeProviderError: LocalizedError, Equatable, Sendable {
@@ -330,6 +332,9 @@ public actor HAWebSocketProvider: HomeProvider {
             }
             if let home = try snapshot.receive(msg) {
                 continuation?.yield(.snapshotUpdated(home))
+            }
+            for ring in snapshot.takeDoorbellRings() {
+                continuation?.yield(.doorbellRang(ring))
             }
         }
     }

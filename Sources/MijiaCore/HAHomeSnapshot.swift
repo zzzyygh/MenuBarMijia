@@ -18,6 +18,13 @@ struct HAHomeSnapshot {
     private var entities: [HAEntityEntry] = []
     private var states: [String: HAEntityState] = [:]
     private var pendingInitialResults: Set<Int> = [1, 2, 3, 4]
+    private var rings: [DoorbellRing] = []
+
+    /// Doorbell presses seen since the last call. Initial loads and `get_states` refreshes never ring.
+    mutating func takeDoorbellRings() -> [DoorbellRing] {
+        defer { rings = [] }
+        return rings
+    }
 
     mutating func receive(_ message: [String: JSONValue]) throws -> SynthesizedHome? {
         if message["type"]?.stringValue == "result", let id = message["id"]?.intValue {
@@ -49,6 +56,10 @@ struct HAHomeSnapshot {
                   case .object(let data) = event["data"],
                   let newState = data["new_state"],
                   let state = Self.parseState(newState) {
+            if pendingInitialResults.isEmpty, DoorbellRing.isRing(state, previous: states[state.entityId]) {
+                let deviceId = entities.first { $0.entity_id == state.entityId }?.device_id ?? state.entityId
+                rings.append(DoorbellRing(deviceId: deviceId, entityId: state.entityId, firedAt: state.state))
+            }
             states[state.entityId] = state
         } else {
             return nil
