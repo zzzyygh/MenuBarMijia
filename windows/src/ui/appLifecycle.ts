@@ -12,7 +12,7 @@ import {
 import { credentialsFromSettings, hasCredentials } from "../core/secureStore.js";
 import { homeAssistantIdentity } from "../core/homeAssistant.js";
 import { normalizeMiCloudRegion } from "../core/miCloudClient.js";
-import { assistantEndpointIdentity } from "../core/assistant.js";
+import { assistantEndpointIdentity, isLocalNetworkURL } from "../core/assistant.js";
 import { setLanguage, resolveLanguage } from "../core/i18n.js";
 import { applyTemperatureUnit } from "../core/temperature.js";
 import { partitionDueTimers, cloudRefreshDue } from "../core/models.js";
@@ -119,7 +119,12 @@ export function submitServiceEndpoints(host: MenuMijiaWindowsApp, force = false)
     host.lastSubmittedEndpoints = serialized;
     const invoke = window.__TAURI_INTERNALS__?.invoke;
     if (!invoke) return;
-    host.endpointSubmission = invoke("set_service_endpoints", { assistantUrl, haUrl }).catch(() => undefined);
+    host.endpointSubmission = invoke("set_service_endpoints", {
+      assistantUrl,
+      haUrl,
+      assistantIsLocalNetwork: isLocalNetworkURL(assistantUrl),
+      haIsLocalNetwork: isLocalNetworkURL(haUrl),
+    }).catch(() => undefined);
   }
 
   /** Restores the last known release so an update found yesterday still shows after a restart. */

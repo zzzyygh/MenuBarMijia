@@ -228,17 +228,43 @@ pub(crate) fn origin_from_endpoint(raw: &str) -> Option<String> {
     url_origin(&url)
 }
 
-pub(crate) fn requested_service_origins(assistant_url: &str, ha_url: &str) -> Result<HashSet<String>, String> {
-    let mut origins = HashSet::new();
-    for raw in [assistant_url, ha_url] {
-        if raw.trim().is_empty() {
-            continue;
-        }
-        let origin = origin_from_endpoint(raw)
-            .ok_or_else(|| format!("invalid configured endpoint: {raw}"))?;
-        origins.insert(origin);
+fn service_origin(raw: &str) -> Result<Option<String>, String> {
+    if raw.trim().is_empty() {
+        return Ok(None);
     }
-    Ok(origins)
+    origin_from_endpoint(raw)
+        .map(Some)
+        .ok_or_else(|| format!("invalid configured endpoint: {raw}"))
+}
+
+/// Configured origins paired with whether their dialog needs a plaintext warning.
+///
+/// A public plaintext AI endpoint is refused here, before any dialog, so the existing
+/// key-transport rule holds on the native side too.
+pub(crate) fn requested_service_origins(
+    assistant_url: &str,
+    ha_url: &str,
+    assistant_is_local_network: bool,
+    ha_is_local_network: bool,
+) -> Result<Vec<(String, bool)>, String> {
+    let mut origins: HashMap<String, bool> = HashMap::new();
+    for (raw, is_local_network, is_assistant) in [
+        (assistant_url, assistant_is_local_network, true),
+        (ha_url, ha_is_local_network, false),
+    ] {
+        let Some(origin) = service_origin(raw)? else {
+            continue;
+        };
+        let plaintext_warning = origin.starts_with("http://") && !is_local_network;
+        if is_assistant && plaintext_warning {
+            return Err(format!("AI 服务地址必须使用 https 或局域网地址：{origin}"));
+        }
+        origins
+            .entry(origin)
+            .and_modify(|warning| *warning |= plaintext_warning)
+            .or_insert(plaintext_warning);
+    }
+    Ok(origins.into_iter().collect())
 }
 
 pub(crate) fn read_origin_store(path: &std::path::Path) -> HashSet<String> {
@@ -296,41 +322,73 @@ pub(crate) fn decide_service_origins(
     current: &HashSet<String>,
     assistant_url: &str,
     ha_url: &str,
-    confirm: impl Fn(&str) -> bool,
+    assistant_is_local_network: bool,
+    ha_is_local_network: bool,
+    mut confirm: impl FnMut(&str, bool) -> bool,
 ) -> Result<HashSet<String>, String> {
-    let requested = requested_service_origins(assistant_url, ha_url)?;
-    let mut novel: Vec<String> = requested.difference(current).cloned().collect();
-    novel.sort();
-    for origin in &novel {
-        if !confirm(origin) {
+    let requested = requested_service_origins(
+        assistant_url,
+        ha_url,
+        assistant_is_local_network,
+        ha_is_local_network,
+    )?;
+    let mut novel: Vec<&(String, bool)> = requested
+        .iter()
+        .filter(|(origin, _)| !current.contains(origin))
+        .collect();
+    novel.sort_by(|left, right| left.0.cmp(&right.0));
+    for (origin, plaintext_warning) in novel {
+        if !confirm(origin, *plaintext_warning) {
             return Err(format!("未授权的网络来源：{origin}"));
         }
     }
-    Ok(requested)
+    Ok(requested.into_iter().map(|(origin, _)| origin).collect())
 }
 
 pub(crate) fn authorize_service_endpoints(
     assistant_url: &str,
     ha_url: &str,
-    confirm: impl Fn(&str) -> bool,
+    assistant_is_local_network: bool,
+    ha_is_local_network: bool,
+    confirm: impl FnMut(&str, bool) -> bool,
 ) -> Result<(), String> {
     let current = allowed_origins_snapshot()?;
-    let next = decide_service_origins(&current, assistant_url, ha_url, confirm)?;
+    let next = decide_service_origins(
+        &current,
+        assistant_url,
+        ha_url,
+        assistant_is_local_network,
+        ha_is_local_network,
+        confirm,
+    )?;
     store_authorized(&next)
 }
 
+/// Shown when a plain-http origin outside the local network would carry a token or key (#277).
+pub(crate) const PLAINTEXT_WARNING: &str =
+    "警告：这个地址使用明文 http，Home Assistant 令牌和 AI API Key 会以明文在网络上传输。";
+
+pub(crate) fn confirmation_message(origin: &str, is_local_network: bool) -> String {
+    let mut text = format!(
+        "允许 MenuBarMijia 连接这个地址吗？\n\n{origin}\n\n只有你在设置里填写的 Home Assistant 或 AI 服务地址才应该出现在这里。"
+    );
+    if origin.starts_with("http://") && !is_local_network {
+        text.push_str("\n\n");
+        text.push_str(PLAINTEXT_WARNING);
+    }
+    text
+}
+
 #[cfg(test)]
-pub(crate) fn user_confirms_origin(_origin: &str) -> bool {
+pub(crate) fn user_confirms_origin(_origin: &str, _is_local_network: bool) -> bool {
     false
 }
 
 #[cfg(all(windows, not(test)))]
-pub(crate) fn user_confirms_origin(origin: &str) -> bool {
+pub(crate) fn user_confirms_origin(origin: &str, is_local_network: bool) -> bool {
     use std::ffi::OsStr;
     use std::os::windows::ffi::OsStrExt;
-    let text = format!(
-        "允许 MenuBarMijia 连接这个地址吗？\n\n{origin}\n\n只有你在设置里填写的 Home Assistant 或 AI 服务地址才应该出现在这里。"
-    );
+    let text = confirmation_message(origin, is_local_network);
     let text_wide: Vec<u16> = OsStr::new(&text).encode_wide().chain(std::iter::once(0)).collect();
     let title_wide: Vec<u16> = OsStr::new("MenuBarMijia").encode_wide().chain(std::iter::once(0)).collect();
     #[link(name = "user32")]
@@ -357,11 +415,22 @@ pub(crate) fn user_confirms_origin(origin: &str) -> bool {
 }
 
 #[cfg(all(not(windows), not(test)))]
-pub(crate) fn user_confirms_origin(_origin: &str) -> bool {
+pub(crate) fn user_confirms_origin(_origin: &str, _is_local_network: bool) -> bool {
     false
 }
 
 #[tauri::command]
-pub(crate) fn set_service_endpoints(assistant_url: String, ha_url: String) -> Result<(), String> {
-    authorize_service_endpoints(&assistant_url, &ha_url, user_confirms_origin)
+pub(crate) fn set_service_endpoints(
+    assistant_url: String,
+    ha_url: String,
+    assistant_is_local_network: bool,
+    ha_is_local_network: bool,
+) -> Result<(), String> {
+    authorize_service_endpoints(
+        &assistant_url,
+        &ha_url,
+        assistant_is_local_network,
+        ha_is_local_network,
+        user_confirms_origin,
+    )
 }

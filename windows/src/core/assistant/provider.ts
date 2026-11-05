@@ -203,10 +203,15 @@ export function endpointAllowsSendingSecrets(baseURL: string): boolean {
   return endpoint.scheme === "https" || isLocalNetworkEndpoint(endpoint);
 }
 
-/** True when the endpoint may run without an API key (this computer or the local network). */
-export function isLocalAssistantEndpoint(baseURL: string): boolean {
+/** True when a raw user-typed address stays on this computer or the local network. */
+export function isLocalNetworkURL(baseURL: string): boolean {
   const endpoint = parseAssistantEndpoint(baseURL);
   return endpoint ? isLocalNetworkEndpoint(endpoint) : false;
+}
+
+/** True when the endpoint may run without an API key (this computer or the local network). */
+export function isLocalAssistantEndpoint(baseURL: string): boolean {
+  return isLocalNetworkURL(baseURL);
 }
 
 /** Host plus explicit port; a saved key is bound to this value. */

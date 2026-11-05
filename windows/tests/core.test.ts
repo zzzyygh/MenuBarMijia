@@ -29,6 +29,7 @@ import {
   endpointAllowsSendingSecrets,
   inferAssistantPreset,
   isLocalNetworkEndpoint,
+  isLocalNetworkURL,
   IntentValidator,
   parseAssistantEndpoint,
   partitionHabitReceipt,
@@ -2069,6 +2070,7 @@ describe("AI provider detection and key transport (#19)", () => {
       const endpoint = parseAssistantEndpoint(url);
       assert.ok(endpoint, item.host);
       assert.equal(isLocalNetworkEndpoint(endpoint), item.isLocalNetwork, item.host);
+      assert.equal(isLocalNetworkURL(url), item.isLocalNetwork, item.host);
     }
   });
 

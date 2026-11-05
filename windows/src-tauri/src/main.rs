@@ -558,7 +558,7 @@ mod tests {
                 invoke_key: tauri::test::INVOKE_KEY.to_string(),
             },
         );
-        let _service = tauri::test::get_ipc_response(
+        let service = tauri::test::get_ipc_response(
             &window,
             tauri::webview::InvokeRequest {
                 cmd: "set_service_endpoints".into(),
@@ -567,7 +567,9 @@ mod tests {
                 url: invoke_url.clone(),
                 body: tauri::ipc::InvokeBody::Json(serde_json::json!({
                     "assistantUrl": "https://evil.example",
-                    "haUrl": ""
+                    "haUrl": "",
+                    "assistantIsLocalNetwork": false,
+                    "haIsLocalNetwork": false
                 })),
                 headers: Default::default(),
                 invoke_key: tauri::test::INVOKE_KEY.to_string(),
@@ -592,6 +594,12 @@ mod tests {
             },
         );
         EXTRA_ALLOWED_ORIGINS.write().expect("allowlist lock").clear();
+        let service_error = service.expect_err("service endpoints must ask before authorizing");
+        let service_message = service_error.as_str().expect("policy error returned to the frontend");
+        assert!(
+            service_message.contains("未授权"),
+            "endpoint command rejected the new arguments: {service_message}"
+        );
         let error = response.expect_err("a frontend grant must not make native_http reach evil.example");
         let message = error.as_str().expect("policy error returned to the frontend");
         assert!(
@@ -608,7 +616,9 @@ mod tests {
             &empty,
             "HTTPS://API.DeepSeek.com:8443/v1",
             "http://[::1]:8123/api",
-            |_| true,
+            false,
+            true,
+            |_, _| true,
         )
         .expect("confirmed endpoints authorize");
         assert!(check_url_allowed(
@@ -632,7 +642,14 @@ mod tests {
         )
         .is_err());
 
-        let denied = decide_service_origins(&granted, "https://evil.example", "http://[::1]:8123/api", |_| false);
+        let denied = decide_service_origins(
+            &granted,
+            "https://evil.example",
+            "http://[::1]:8123/api",
+            false,
+            true,
+            |_, _| false,
+        );
         assert!(denied.is_err());
         assert!(check_url_allowed(
             &reqwest::Url::parse("https://evil.example/steal").unwrap(),
@@ -640,8 +657,15 @@ mod tests {
         )
         .is_err());
 
-        let shrunk = decide_service_origins(&granted, "", "http://[::1]:8123/api", |_| false)
-            .expect("dropping an endpoint does not need a new grant");
+        let shrunk = decide_service_origins(
+            &granted,
+            "",
+            "http://[::1]:8123/api",
+            false,
+            true,
+            |_, _| false,
+        )
+        .expect("dropping an endpoint does not need a new grant");
         assert!(check_url_allowed(
             &reqwest::Url::parse("https://api.deepseek.com:8443/v1").unwrap(),
             &shrunk
@@ -652,6 +676,143 @@ mod tests {
             &shrunk
         )
         .is_ok());
+    }
+
+    #[test]
+    fn plaintext_warning_appears_only_for_public_http_origins() {
+        let base = confirmation_message("https://ha.example.com", false);
+        assert!(!base.contains(PLAINTEXT_WARNING));
+        assert_eq!(base, confirmation_message("https://ha.example.com", true));
+
+        let local_http = confirmation_message("http://192.168.1.8:8123", true);
+        assert!(!local_http.contains(PLAINTEXT_WARNING));
+        assert_eq!(local_http, confirmation_message("http://192.168.1.8:8123", true));
+
+        let public_http = confirmation_message("http://ha.example.com:8123", false);
+        assert!(public_http.contains(PLAINTEXT_WARNING));
+        assert!(public_http.starts_with("允许 MenuBarMijia 连接这个地址吗？"));
+    }
+
+    #[test]
+    fn confirmation_warning_matches_the_shared_local_network_golden() {
+        let raw = include_str!("../../../Tests/Fixtures/local_network_endpoint_golden.json");
+        let golden: serde_json::Value = serde_json::from_str(raw).expect("LAN endpoint golden");
+        let cases = golden["cases"].as_array().expect("golden cases");
+        assert!(cases.len() >= 50);
+        for case in cases {
+            let host = case["host"].as_str().expect("host");
+            let is_local = case["isLocalNetwork"].as_bool().expect("isLocalNetwork");
+            let url = if host.contains(':') {
+                format!("http://[{host}]")
+            } else {
+                format!("http://{host}")
+            };
+            let message = confirmation_message(&url, is_local);
+            assert_eq!(
+                message.contains(PLAINTEXT_WARNING),
+                !is_local,
+                "plaintext warning mismatch for {host}"
+            );
+        }
+    }
+
+    #[test]
+    fn public_plaintext_home_assistant_asks_with_a_warning_but_lan_and_https_do_not() {
+        let empty = HashSet::new();
+        let prompts = std::cell::RefCell::new(Vec::<(String, bool)>::new());
+        let confirm = |origin: &str, warning: bool| {
+            prompts.borrow_mut().push((origin.to_string(), warning));
+            true
+        };
+
+        decide_service_origins(
+            &empty,
+            "https://api.deepseek.com/v1",
+            "http://ha.example.com:8123/api",
+            false,
+            false,
+            confirm,
+        )
+        .expect("public plaintext Home Assistant is confirmed");
+        assert_eq!(
+            *prompts.borrow(),
+            vec![
+                ("http://ha.example.com:8123".to_string(), true),
+                ("https://api.deepseek.com:443".to_string(), false),
+            ]
+        );
+
+        prompts.borrow_mut().clear();
+        decide_service_origins(
+            &empty,
+            "https://api.deepseek.com/v1",
+            "http://192.168.1.8:8123/api",
+            false,
+            true,
+            confirm,
+        )
+        .expect("LAN Home Assistant is confirmed");
+        assert_eq!(
+            *prompts.borrow(),
+            vec![
+                ("http://192.168.1.8:8123".to_string(), false),
+                ("https://api.deepseek.com:443".to_string(), false),
+            ]
+        );
+
+        prompts.borrow_mut().clear();
+        decide_service_origins(
+            &empty,
+            "https://api.deepseek.com/v1",
+            "https://ha.example.com/api",
+            false,
+            false,
+            confirm,
+        )
+        .expect("HTTPS Home Assistant is confirmed");
+        assert_eq!(
+            *prompts.borrow(),
+            vec![
+                ("https://api.deepseek.com:443".to_string(), false),
+                ("https://ha.example.com:443".to_string(), false),
+            ]
+        );
+    }
+
+    #[test]
+    fn public_plaintext_ai_endpoints_are_rejected_before_any_confirmation() {
+        let mut prompts = 0;
+        let rejected = decide_service_origins(
+            &HashSet::new(),
+            "http://api.deepseek.com/v1",
+            "http://ha.example.com:8123/api",
+            false,
+            false,
+            |_, _| {
+                prompts += 1;
+                true
+            },
+        );
+        assert!(rejected.is_err());
+        assert_eq!(prompts, 0, "public plaintext AI must not open a dialog");
+    }
+
+    #[test]
+    fn lan_plaintext_ai_endpoints_keep_the_existing_confirmation() {
+        let mut prompts: Vec<(String, bool)> = Vec::new();
+        decide_service_origins(
+            &HashSet::new(),
+            "http://192.168.1.8:11434/v1",
+            "",
+            true,
+            false,
+            |origin, warning| {
+                prompts.push((origin.to_string(), warning));
+                true
+            },
+        )
+        .expect("LAN AI endpoint is confirmed");
+        assert_eq!(prompts, vec![("http://192.168.1.8:11434".to_string(), false)]);
     }
 
     #[test]

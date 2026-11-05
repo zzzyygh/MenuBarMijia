@@ -118,9 +118,68 @@ describe("Service endpoint submission", () => {
     await setImmediate();
 
     assert.deepEqual(calls.filter((call) => call.command === "set_service_endpoints").map((call) => call.args), [
-      { assistantUrl: "HTTPS://API.DeepSeek.com:8443/v1", haUrl: "http://[::1]:8123/api" },
+      {
+        assistantUrl: "HTTPS://API.DeepSeek.com:8443/v1",
+        haUrl: "http://[::1]:8123/api",
+        assistantIsLocalNetwork: false,
+        haIsLocalNetwork: true,
+      },
     ]);
     assert.equal(calls.some((call) => call.command === "set_allowed_origins"), false);
+  });
+
+  it("sends the shared LAN classification so the native dialog warns only on public plaintext", async () => {
+    const calls: Array<{ command: string; args: Record<string, unknown> }> = [];
+    const invoke = async (command: string, args: Record<string, unknown> = {}) => {
+      calls.push({ command, args });
+      return undefined;
+    };
+    Object.defineProperty(window, "__TAURI_INTERNALS__", { value: { invoke }, configurable: true });
+    localStorage.setItem("menumijia.windows.settings.v2", JSON.stringify({
+      connectionMode: "demo",
+      hasCompletedOnboarding: true,
+      assistantBaseURL: "https://api.deepseek.com/v1",
+      haBaseURL: "http://ha.example.com:8123",
+    }));
+
+    new MenuMijiaWindowsApp(element("#app"));
+    await setImmediate();
+
+    assert.deepEqual(calls.filter((call) => call.command === "set_service_endpoints").map((call) => call.args), [
+      {
+        assistantUrl: "https://api.deepseek.com/v1",
+        haUrl: "http://ha.example.com:8123",
+        assistantIsLocalNetwork: false,
+        haIsLocalNetwork: false,
+      },
+    ]);
+  });
+
+  it("marks a .lan Home Assistant address as local for the native dialog", async () => {
+    const calls: Array<{ command: string; args: Record<string, unknown> }> = [];
+    const invoke = async (command: string, args: Record<string, unknown> = {}) => {
+      calls.push({ command, args });
+      return undefined;
+    };
+    Object.defineProperty(window, "__TAURI_INTERNALS__", { value: { invoke }, configurable: true });
+    localStorage.setItem("menumijia.windows.settings.v2", JSON.stringify({
+      connectionMode: "demo",
+      hasCompletedOnboarding: true,
+      assistantBaseURL: "https://api.deepseek.com/v1",
+      haBaseURL: "http://homeassistant.lan:8123",
+    }));
+
+    new MenuMijiaWindowsApp(element("#app"));
+    await setImmediate();
+
+    assert.deepEqual(calls.filter((call) => call.command === "set_service_endpoints").map((call) => call.args), [
+      {
+        assistantUrl: "https://api.deepseek.com/v1",
+        haUrl: "http://homeassistant.lan:8123",
+        assistantIsLocalNetwork: false,
+        haIsLocalNetwork: true,
+      },
+    ]);
   });
 
   it("does not re-prompt a declined endpoint on unrelated background saves, but retries when settings are explicitly saved", async () => {
