@@ -152,7 +152,7 @@ struct AppIntentExecutionTests {
             #expect(message == "开着：书房吸顶灯、书房台灯。请说出房间或设备名")
             #expect(await provider.commandCount == 0)
             #expect(store.scheduledCommands.isEmpty)
-            #expect(store.devices.allSatisfy(\.isActiveOn))
+            #expect(store.devices.allSatisfy { $0.isActiveOn })
         }
     }
 }

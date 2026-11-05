@@ -50,7 +50,7 @@ struct BareCategoryCommandStoreTests {
         ])
         #expect(await mock.executedCommands.isEmpty)
         #expect(store.scheduledCommands.isEmpty)
-        #expect(store.devices.filter(\.isActiveOn).count == 3)
+        #expect(store.devices.filter { $0.isActiveOn }.count == 3)
     }
 
     @Test("全部关掉 runs every lit light, offers undo, and undo restores them")
@@ -63,12 +63,12 @@ struct BareCategoryCommandStoreTests {
         await store.applyAssistantSuggestion(allOff)
         let executed = await mock.executedCommands
         #expect(executed.count == 3)
-        #expect(store.devices.filter(\.isActiveOn).isEmpty)
+        #expect(store.devices.filter { $0.isActiveOn }.isEmpty)
         #expect(store.undoBanner?.restoreCommands.count == 3)
 
         let undo = try #require(store.undoTurnAllOff())
         await undo.value
-        #expect(store.devices.filter(\.isActiveOn).map(\.id) == [
+        #expect(store.devices.filter { $0.isActiveOn }.map(\.id) == [
             "dev_study_ceiling",
             "dev_study_desk",
             "dev_bedroom_lamp"
