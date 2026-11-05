@@ -1,5 +1,5 @@
 {
-  "_comment": "局域网端点判断的双端共享样例（#275）：macOS 的 AssistantEndpoint.isLocalNetwork 与 Windows 的 isLocalNetworkEndpoint 都读这份用例。host 是写进 http://<host> 的主机名片段（小写、无 IPv6 方括号、无结尾点）；两端解析时会先按 WHATWG/inet_aton 规则改写 IPv4 字面量（134744072、0x08080808、010.0.0.1、127.1），再判断是否属于本机或家庭网络。isLocalNetwork=true 表示凭据可以走明文 http。#276/#277 的 Home Assistant 令牌与明文传输同意逻辑可复用这份主机集合。反例和正例一样重要：后缀必须是真正的结尾（.lan），不能按子串匹配。",
+  "_comment": "局域网端点判断的双端共享样例（#275）：macOS 的 AssistantEndpoint.isLocalNetwork 与 Windows 的 isLocalNetworkEndpoint 都读这份用例。host 是写进 http://<host> 的主机名片段（小写、无 IPv6 方括号）；个别用例故意保留结尾点或前导零，用来验证解析会先改写再分类。两端解析时会先按 WHATWG/inet_aton 规则改写 IPv4 字面量（134744072、0x08080808、010.0.0.1、127.1），再判断是否属于本机或家庭网络。isLocalNetwork=true 表示凭据可以走明文 http。#276/#277 的 Home Assistant 令牌与明文传输同意逻辑可复用这份主机集合。反例和正例一样重要：后缀必须是真正的结尾（.lan），不能按子串匹配。",
   "cases": [
     { "host": "localhost", "isLocalNetwork": true },
     { "host": "127.0.0.1", "isLocalNetwork": true },
@@ -45,6 +45,10 @@
     { "host": "10.1", "isLocalNetwork": true, "note": "短写法，拆开后是 10.0.0.1" },
     { "host": "127.1", "isLocalNetwork": true, "note": "短写法，拆开后是 127.0.0.1" },
     { "host": "10.1.2", "isLocalNetwork": true, "note": "短写法，拆开后是 10.1.0.2" },
+    { "host": "0177.0.0.1.", "isLocalNetwork": true, "note": "结尾点 + 点分八进制，改写后是 127.0.0.1" },
+    { "host": "012.0.0.1.", "isLocalNetwork": true, "note": "结尾点 + 点分八进制，改写后是 10.0.0.1" },
+    { "host": "192.0250.1.1.", "isLocalNetwork": true, "note": "结尾点 + 点分八进制，改写后是 192.168.1.1" },
+    { "host": "172.032.1.1.", "isLocalNetwork": true, "note": "结尾点 + 点分八进制，改写后是 172.26.1.1" },
 
     { "host": "8.8.8.8", "isLocalNetwork": false },
     { "host": "1.1.1.1", "isLocalNetwork": false },

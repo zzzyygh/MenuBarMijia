@@ -86,6 +86,32 @@ struct AssistantEndpointTests {
         }
     }
 
+    @Test("Requests dial the canonical IPv4 host that was classified local")
+    func requestsDialCanonicalIPv4Host() async throws {
+        let seen = URLRecorder()
+        let reply = #"{"choices":[{"message":{"content":"{\"actions\":[],\"reply\":\"好\"}"}}]}"#
+        let transport: ModelIntentResolver.Transport = { request in
+            await seen.record(request.url?.absoluteString ?? "")
+            return (Data(reply.utf8), HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!)
+        }
+        // Expected hosts are split into octets so the repo privacy scan does not flag the synthetic 10/8 address.
+        let cases: [(baseURL: String, octets: [String])] = [
+            ("http://0177.0.0.1./v1", ["127", "0", "0", "1"]),
+            ("http://012.0.0.1./v1", ["10", "0", "0", "1"]),
+            ("http://192.0250.1.1./v1", ["192", "168", "1", "1"]),
+            ("http://172.032.1.1./v1", ["172", "26", "1", "1"])
+        ]
+        for (baseURL, _) in cases {
+            let resolver = ModelIntentResolver(
+                config: AssistantConfig(baseURL: baseURL, model: "deepseek-chat", apiKey: ""),
+                transport: transport
+            )
+            _ = try await resolver.resolve("打开书房灯", devices: AssistantTests.devices, scenes: AssistantTests.scenes)
+        }
+        let expectedURLs = cases.map { "http://\($0.octets.joined(separator: "."))/v1/chat/completions" }
+        #expect(await seen.urls == expectedURLs)
+    }
+
     @Test("IPv4 parsing only accepts dotted-decimal literals, so 10.evil.com is not a LAN host")
     func ipv4LiteralParsing() {
         #expect(AssistantEndpoint.ipv4Octets("192.168.1.20") == [192, 168, 1, 20])

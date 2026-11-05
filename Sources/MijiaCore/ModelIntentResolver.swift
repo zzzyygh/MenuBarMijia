@@ -495,10 +495,16 @@ public struct ModelIntentResolver: Sendable, AssistantCommandResolving {
         } else if basePath.isEmpty {
             base += "/v1"
         }
-        guard let url = URL(string: base + path) else {
+        guard let url = URL(string: base + path),
+              var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
             throw AssistantError.invalidBaseURL(config.baseURL)
         }
-        return url
+        // Dial the canonical host so the request cannot resolve to a different address than `isLocalNetwork` classified.
+        components.host = endpoint.host.contains(":") ? "[\(endpoint.host)]" : endpoint.host
+        guard let requestURL = components.url else {
+            throw AssistantError.invalidBaseURL(config.baseURL)
+        }
+        return requestURL
     }
 
     static func systemPrompt(catalog: IntentCatalog, context: AssistantContext = AssistantContext()) -> String {
