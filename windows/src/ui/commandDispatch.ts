@@ -136,6 +136,17 @@ export async function applyCommand(host: MenuMijiaWindowsApp, command: DeviceCom
             k.nightShot = command.option;
           } else if (k.kind === "fridge" && k.modeEntityId === command.entityId) {
             k.currentMode = command.option;
+          } else if (k.kind === "cover" && k.entityId === command.entityId) {
+            const option = command.option.toLowerCase();
+            if (k.openDescription?.toLowerCase() === option) {
+              k.positionPercent = 100;
+              k.motion = "opening";
+            } else if (k.closeDescription?.toLowerCase() === option) {
+              k.positionPercent = 0;
+              k.motion = "closing";
+            } else if (k.pauseDescription?.toLowerCase() === option) {
+              k.motion = "stopped";
+            }
           }
           break;
         case "setNumberValue":

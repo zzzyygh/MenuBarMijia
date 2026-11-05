@@ -43,6 +43,16 @@
               "format": "uint8",
               "access": ["read", "write", "notify"],
               "value-range": [0, 100, 1]
+            },
+            {
+              "iid": 2,
+              "type": "urn:miot-spec-v2:property:fault:00000009:fixture-single:1",
+              "format": "uint8",
+              "access": ["read", "notify"],
+              "value-list": [
+                { "value": 0, "description": "No Faults" },
+                { "value": 2, "description": "Obstruction" }
+              ]
             }
           ]
         }
@@ -92,6 +102,15 @@
               "format": "uint8",
               "access": ["read", "write", "notify"],
               "value-range": [0, 100, 1]
+            },
+            {
+              "iid": 10,
+              "type": "urn:miot-spec-v2:property:fault:00000009:fixture-dual:1",
+              "format": "uint8",
+              "access": ["read", "notify"],
+              "value-list": [
+                { "value": 1, "description": "No Fault" }
+              ]
             }
           ]
         },
@@ -3221,9 +3240,11 @@
     { "did": "did_curtain", "siid": 2, "piid": 3, "value": 42 },
     { "did": "did_curtain", "siid": 2, "piid": 6, "value": 0 },
     { "did": "did_curtain", "siid": 2, "piid": 7, "value": 42 },
+    { "did": "did_curtain", "siid": 2, "piid": 2, "value": 2 },
     { "did": "did_curtain_dual", "siid": 2, "piid": 2, "value": 2 },
     { "did": "did_curtain_dual", "siid": 2, "piid": 3, "value": 20 },
     { "did": "did_curtain_dual", "siid": 2, "piid": 4, "value": 20 },
+    { "did": "did_curtain_dual", "siid": 2, "piid": 10, "value": 1 },
     { "did": "did_curtain_dual", "siid": 3, "piid": 2, "value": 2 },
     { "did": "did_curtain_dual", "siid": 3, "piid": 3, "value": 90 },
     { "did": "did_curtain_dual", "siid": 3, "piid": 4, "value": 90 }
@@ -3493,7 +3514,7 @@
       "closeDescription": "Close",
       "pauseDescription": "Pause",
       "batteryPercent": null,
-      "faultText": null,
+      "faultText": "Obstruction",
       "motion": "stopped"
     },
     "did_curtain_dual.s2": {
@@ -3781,12 +3802,14 @@
     "did_curtain": [
       { "did": "did_curtain", "siid": 2, "piid": 3 },
       { "did": "did_curtain", "siid": 2, "piid": 7 },
-      { "did": "did_curtain", "siid": 2, "piid": 6 }
+      { "did": "did_curtain", "siid": 2, "piid": 6 },
+      { "did": "did_curtain", "siid": 2, "piid": 2 }
     ],
     "did_curtain_dual": [
       { "did": "did_curtain_dual", "siid": 2, "piid": 3 },
       { "did": "did_curtain_dual", "siid": 2, "piid": 4 },
       { "did": "did_curtain_dual", "siid": 2, "piid": 2 },
+      { "did": "did_curtain_dual", "siid": 2, "piid": 10 },
       { "did": "did_curtain_dual", "siid": 3, "piid": 3 },
       { "did": "did_curtain_dual", "siid": 3, "piid": 4 },
       { "did": "did_curtain_dual", "siid": 3, "piid": 2 }

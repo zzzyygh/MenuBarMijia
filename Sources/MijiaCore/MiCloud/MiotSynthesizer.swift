@@ -524,7 +524,7 @@ public enum MiotSynthesizer {
         let current = r.ref("current-position", in: s)
         let target = r.ref("target-position", in: s)
         let status = r.ref("status", in: s)
-        let fault = r.ref("device-fault", in: s)
+        let fault = r.ref("device-fault", in: s) ?? r.ref("fault", in: s)
         let battery = r.first("battery-level", in: r.spec.services(named: "battery"))
         let motor = s.properties.first { $0.shortName == "motor-control" && $0.isWritable }
         let items = motor?.valueList ?? []
@@ -533,10 +533,10 @@ public enum MiotSynthesizer {
             percent(fromRaw: $0, property: positionSource!.property)
         }
         let faultCode = fault?.value?.intValue
-        let faultText: String? = {
-            guard let faultCode, faultCode != 0 else { return nil }
-            return fault?.property.description(forValue: faultCode) ?? "\(faultCode)"
-        }()
+        let faultText = coverFaultText(
+            code: faultCode,
+            description: faultCode.flatMap { fault?.property.description(forValue: $0) }
+        )
         return .cover(CoverSpec(
             entityId: MiotAddress.make(did: r.did, siid: s.iid),
             subtype: CoverSubtype(miotServiceShortName: s.shortName),
@@ -549,6 +549,13 @@ public enum MiotSynthesizer {
             faultText: faultText,
             motion: coverMotion(forDescription: status?.valueDescription)
         ))
+    }
+
+    /// Some curtain specs use `fault`, and some publish a healthy code of 1 named "No Fault".
+    static func coverFaultText(code: Int?, description: String?) -> String? {
+        guard let code, code != 0 else { return nil }
+        if let description, description.lowercased().contains("no fault") { return nil }
+        return description ?? "\(code)"
     }
 
     /// Only a status that names movement makes a cover moving. Some specs reuse "Open"/"Close" for

@@ -77,14 +77,20 @@ import {
   cloudRefreshDue,
   CLOUD_REFRESH_HIDDEN_MS,
   CLOUD_REFRESH_VISIBLE_MS,
+  type DeviceCommand,
   type DeviceIntent,
   type ScheduledCommand,
   deviceReadout,
+  isActiveDevice,
+  isDeviceActiveOn,
   readMiotPower,
   deviceStatusSummary,
   type CoverSpec,
   type SmartDevice,
 } from "../src/core/models.js";
+import { applyCommand } from "../src/ui/commandDispatch.js";
+import { executeSingleCommand } from "../src/ui/intentExecution.js";
+import type { MenuMijiaWindowsApp } from "../src/ui/app.js";
 
 const Vectors = {
   ssecurity: "AQIDBAUGBwgJCgsMDQ4PEA==",
@@ -4019,5 +4025,130 @@ describe("Mains breaker (#265)", () => {
     ] as const) {
       assert.throws(() => MiotCommandMapper.map(command, breaker), /electronic-valve/);
     }
+  });
+});
+
+describe("Windows curtain control (#279)", () => {
+  function cover(position: number, motion: "stopped" | "opening" | "closing" = "stopped"): SmartDevice {
+    return {
+      id: "did_curtain",
+      name: "客厅窗帘",
+      roomId: "room_living",
+      roomName: "客厅",
+      model: "fixture.curtain.single",
+      isOnline: true,
+      kind: {
+        kind: "cover",
+        entityId: "miot:did_curtain:2",
+        subtype: "curtain",
+        positionPercent: position,
+        positionWritable: true,
+        openDescription: "Open",
+        closeDescription: "Close",
+        pauseDescription: "Pause",
+        batteryPercent: null,
+        faultText: null,
+        motion,
+      },
+    };
+  }
+
+  function coverHost(device: SmartDevice) {
+    const fake = {
+      settings: { connectionMode: "demo", habitLearningEnabled: false },
+      sourceRevision: 0,
+      devices: [device],
+      localControlRevision: 0,
+      replyBanner: null as { text: string; source: string; isError?: boolean } | null,
+      grokBballCelebrationUntil: 0,
+      lastUndoAction: null as unknown,
+      render: () => {},
+      async applyCommand(command: DeviceCommand, readBackPower = false): Promise<boolean> {
+        return applyCommand(fake as unknown as MenuMijiaWindowsApp, command, readBackPower);
+      },
+    };
+    return fake;
+  }
+
+  it("applies motor writes and confirms covers without a power read-back", async () => {
+    const device = cover(0);
+    const fake = coverHost(device);
+    const host = fake as unknown as MenuMijiaWindowsApp;
+    const kind = device.kind;
+    assert.equal(kind.kind, "cover");
+    if (kind.kind !== "cover") assert.fail("Expected cover");
+
+    const open = IntentValidator.commandsForIntent(
+      { targetId: device.id, operation: { kind: "power", isOn: true } },
+      device,
+    )[0];
+    assert.ok(open);
+    await executeSingleCommand(
+      host,
+      device,
+      open,
+      "已打开客厅窗帘",
+      { targetId: device.id, operation: { kind: "power", isOn: true } },
+      true,
+    );
+    assert.equal(kind.positionPercent, 100);
+    assert.equal(kind.motion, "opening");
+    assert.notEqual(fake.replyBanner?.isError, true);
+
+    kind.positionPercent = 40;
+    kind.motion = "stopped";
+    const close = IntentValidator.commandsForIntent(
+      { targetId: device.id, operation: { kind: "power", isOn: false } },
+      device,
+    )[0];
+    assert.ok(close);
+    await executeSingleCommand(
+      host,
+      device,
+      close,
+      "已关闭客厅窗帘",
+      { targetId: device.id, operation: { kind: "power", isOn: false } },
+      true,
+    );
+    assert.equal(kind.positionPercent, 0);
+    assert.equal(kind.motion, "closing");
+    assert.notEqual(fake.replyBanner?.isError, true);
+
+    kind.positionPercent = 40;
+    kind.motion = "opening";
+    const stop = IntentValidator.commandsForIntent(
+      { targetId: device.id, operation: { kind: "power", isOn: false } },
+      device,
+    )[0];
+    assert.deepEqual(stop, { kind: "setSelectOption", entityId: "miot:did_curtain:2", option: "Pause" });
+    await executeSingleCommand(
+      host,
+      device,
+      stop!,
+      "已停止客厅窗帘",
+      { targetId: device.id, operation: { kind: "power", isOn: false } },
+      true,
+    );
+    assert.equal(kind.positionPercent, 40);
+    assert.equal(kind.motion, "stopped");
+    assert.notEqual(fake.replyBanner?.isError, true);
+  });
+
+  it("keeps an open curtain out of active counts and assistant summaries", () => {
+    const open = cover(60);
+    assert.equal(isDeviceActiveOn(open), true);
+    assert.equal(isActiveDevice(open), false);
+
+    const context = buildAssistantContext({
+      now: new Date(2026, 10, 5, 15, 30),
+      readings: [],
+      devices: [open],
+      scenes: [],
+      sharing: "off",
+      memory: { entries: [] },
+      phrases: [],
+      mention: { kind: "none" },
+    });
+    assert.equal(context.activeDevicesSummary, "全屋设备均关闭");
   });
 });

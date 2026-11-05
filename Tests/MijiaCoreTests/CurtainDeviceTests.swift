@@ -54,6 +54,7 @@ struct CurtainDeviceTests {
             .init(did: "dual1", siid: 2, piid: 2): .number(2),
             .init(did: "dual1", siid: 2, piid: 3): .number(Double(drapePosition)),
             .init(did: "dual1", siid: 2, piid: 4): .number(Double(drapePosition)),
+            .init(did: "dual1", siid: 2, piid: 10): .number(1),
             .init(did: "dual1", siid: 3, piid: 2): .number(2),
             .init(did: "dual1", siid: 3, piid: 3): .number(Double(lacePosition)),
             .init(did: "dual1", siid: 3, piid: 4): .number(Double(lacePosition)),
@@ -85,12 +86,14 @@ struct CurtainDeviceTests {
         #expect(cover.openDescription == "Open")
         #expect(cover.closeDescription == "Close")
         #expect(cover.pauseDescription == "Pause")
+        #expect(cover.faultText == nil)
         #expect(device.hasDetailDrawer)
         #expect(device.statusSubtitle == "开 42%")
 
         let props = MiotSynthesizer.requiredProps(for: record, spec: spec)
         #expect(props.contains(.init(did: "curtain1", siid: 2, piid: 6)), "status is polled for motion")
         #expect(props.contains(.init(did: "curtain1", siid: 2, piid: 3)), "current position is polled")
+        #expect(props.contains(.init(did: "curtain1", siid: 2, piid: 1)), "the spec's fault property is polled")
         #expect(!props.contains(.init(did: "curtain1", siid: 2, piid: 2)), "write-only motor-control is not polled")
 
         #expect(try MiotCommandMapper.map(.setSelectOption(entityId: "miot:curtain1:2", option: "Open"), spec: spec)
@@ -119,11 +122,14 @@ struct CurtainDeviceTests {
         #expect(laceCover.entityId == "miot:dual1:3")
         #expect(drapeCover.positionPercent == 20)
         #expect(laceCover.positionPercent == 90)
+        // The real spec reports its healthy state as code 1, "No Fault".
+        #expect(drapeCover.faultText == nil)
 
         let record = MiDeviceRecord(did: "dual1", name: "卧室窗帘", model: Self.dualModel, isOnline: true)
         let props = MiotSynthesizer.requiredProps(for: record, spec: spec)
         #expect(props.contains(.init(did: "dual1", siid: 2, piid: 3)), "the drape track is polled")
         #expect(props.contains(.init(did: "dual1", siid: 3, piid: 3)), "the sheer track is polled")
+        #expect(props.contains(.init(did: "dual1", siid: 2, piid: 10)), "the drape fault is polled")
 
         #expect(try MiotCommandMapper.map(.setSelectOption(entityId: "miot:dual1:3", option: "Close"), spec: spec)
             == .setProps([.init(did: "dual1", siid: 3, piid: 1, value: .number(1))]))

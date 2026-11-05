@@ -173,6 +173,59 @@ describe("Windows device control and undo", () => {
     );
   });
 
+  it("keeps an open curtain out of the active-device count (#279)", async () => {
+    localStorage.setItem("menumijia.windows.settings.v2", JSON.stringify({
+      connectionMode: "demo",
+      hasCompletedOnboarding: true,
+    }));
+    const host = new MenuMijiaWindowsApp(element("#app"));
+    await setImmediate();
+
+    const cover: SmartDevice = {
+      id: "curtain-living",
+      name: "客厅窗帘",
+      roomId: "living",
+      roomName: "客厅",
+      model: "fixture.curtain.single",
+      isOnline: true,
+      kind: {
+        kind: "cover",
+        entityId: "miot:curtain-living:2",
+        subtype: "curtain",
+        positionPercent: 100,
+        positionWritable: true,
+        openDescription: "Open",
+        closeDescription: "Close",
+        pauseDescription: "Pause",
+        batteryPercent: null,
+        faultText: null,
+        motion: "stopped",
+      },
+    };
+    const light: SmartDevice = {
+      id: "lamp-living",
+      name: "客厅灯",
+      roomId: "living",
+      roomName: "客厅",
+      model: "yeelink.light.ceiling22",
+      isOnline: true,
+      kind: {
+        kind: "light",
+        entityId: "miot:lamp-living:2",
+        isOn: true,
+        brightnessPercent: 60,
+        colorTempKelvin: 4100,
+        minKelvin: 2700,
+        maxKelvin: 6500,
+        currentEffect: null,
+        availableEffects: [],
+      },
+    };
+
+    host.devices = [cover, light];
+    assert.equal(host.activeDeviceCount, 1);
+  });
+
   it("clears a submitted command after undo instead of restoring it into the input", async () => {
     startDemo();
     await click('[data-toggle-device="light.living_ceiling"]');

@@ -68,6 +68,13 @@ function coverMotorDescription(
   return items.find((item) => aliases.includes(item.description.trim().toLowerCase()))?.description ?? null;
 }
 
+/** Some curtain specs use `fault`, and some publish a healthy code of 1 named "No Fault". */
+function coverFaultText(code: number | null, description: string | null): string | null {
+  if (code === null || code === 0) return null;
+  if (description?.toLowerCase().includes("no fault")) return null;
+  return description ?? String(code);
+}
+
 /** Only a status that names travel counts as moving; "Open"/"Close" are end states on some specs. */
 function coverMotion(description: string | null | undefined): "stopped" | "opening" | "closing" {
   switch ((description ?? "").trim().toLowerCase()) {
@@ -815,7 +822,7 @@ export const MiotSynthesizer = {
       const current = readProp(primaryService, "current-position");
       const target = readProp(primaryService, "target-position");
       const status = readProp(primaryService, "status");
-      const fault = readProp(primaryService, "device-fault");
+      const fault = readProp(primaryService, "device-fault") ?? readProp(primaryService, "fault");
       const battery = readFirst(
         spec.services.filter((s) => miotShortName(s.type) === "battery"),
         "battery-level",
@@ -831,6 +838,10 @@ export const MiotSynthesizer = {
           ? (status?.prop.valueList?.find((i) => i.value === statusCode)?.description ?? null)
           : null;
       const faultCode = typeof fault?.val === "number" ? Math.trunc(fault.val) : null;
+      const faultDescription =
+        faultCode !== null
+          ? (fault?.prop.valueList?.find((i) => i.value === faultCode)?.description ?? null)
+          : null;
       return {
         kind: "cover",
         entityId: makeMiotAddress(did, primaryService.iid),
@@ -844,10 +855,7 @@ export const MiotSynthesizer = {
         closeDescription: coverMotorDescription(items, "close"),
         pauseDescription: coverMotorDescription(items, "pause"),
         batteryPercent: typeof battery?.val === "number" ? Math.trunc(battery.val) : null,
-        faultText:
-          faultCode !== null && faultCode !== 0
-            ? (fault?.prop.valueList?.find((i) => i.value === faultCode)?.description ?? String(faultCode))
-            : null,
+        faultText: coverFaultText(faultCode, faultDescription),
         motion: coverMotion(statusDescription),
       };
     }

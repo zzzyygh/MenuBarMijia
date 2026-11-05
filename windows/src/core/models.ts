@@ -124,14 +124,14 @@ export interface CoverSpec {
   readonly kind: "cover";
   readonly entityId: string;
   readonly subtype: "curtain" | "window-opener" | "garage-door" | "clothes-airer";
-  readonly positionPercent: number | null;
+  positionPercent: number | null;
   readonly positionWritable: boolean;
   readonly openDescription: string | null;
   readonly closeDescription: string | null;
   readonly pauseDescription: string | null;
   readonly batteryPercent: number | null;
   readonly faultText: string | null;
-  readonly motion: "stopped" | "opening" | "closing";
+  motion: "stopped" | "opening" | "closing";
 }
 
 export type DeviceKind =
@@ -383,6 +383,11 @@ export function isDeviceActiveOn(device: SmartDevice): boolean {
       return _exhaustive;
     }
   }
+}
+
+/** GLOSSARY ActiveDevice: an open cover is not switched on, so it stays out of counts and summaries. */
+export function isActiveDevice(device: SmartDevice): boolean {
+  return device.kind.kind !== "cover" && isDeviceActiveOn(device);
 }
 
 /** Dedicated sensors sort ahead of air purifiers and AC return-air thermistors (#103). */

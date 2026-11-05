@@ -231,7 +231,10 @@ export async function executeSingleCommand(host: MenuMijiaWindowsApp,
     if (sourceRevision !== host.sourceRevision) return;
     // Momentary buttons (Wake-on-LAN) complete without reporting an on/off state to compare.
     const isMomentaryButton = command.kind === "setSwitch" && command.entityId.startsWith("button.");
-    if (readBackPower && !isMomentaryButton && !readBackMatches(host, device.id, intent)) {
+    // A cover motor write has no boolean power to read back; the accepted write is the
+    // confirmation and applyCommand has already moved the card's optimistic position/motion.
+    const isCoverMotorWrite = command.kind === "setSelectOption" && device.kind.kind === "cover";
+    if (readBackPower && !isMomentaryButton && !isCoverMotorWrite && !readBackMatches(host, device.id, intent)) {
       host.replyBanner = { text: t("未能读回设备状态"), source: t("控制失败"), isError: true };
       host.render();
       return;
