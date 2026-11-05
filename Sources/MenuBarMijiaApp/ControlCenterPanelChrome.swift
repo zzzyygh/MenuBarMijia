@@ -1014,6 +1014,7 @@ extension ControlCenterPanel {
                 systemImage: "lock.open.fill"
             )
             .font(.system(size: DesignTokens.TypeSize.caption, weight: .medium))
+            .fixedSize(horizontal: false, vertical: true)
             if !isDeclined {
                 Text(L10n.tr(
                     "这是公网上的 http 地址，路上任何人都能看到 Home Assistant 令牌。能改用 https 就别连接。",
@@ -1021,6 +1022,7 @@ extension ControlCenterPanel {
                 ))
                 .font(.system(size: DesignTokens.TypeSize.caption))
                 .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
             }
             HStack(spacing: 8) {
                 Button(L10n.tr("仍然连接", "Connect Anyway")) {
