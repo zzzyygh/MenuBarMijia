@@ -12,6 +12,7 @@ enum UnsupportedDeviceScanError: LocalizedError {
     case invalidResponse
     case unauthorized
     case rejected
+    case plaintextNotApproved
 
     var errorDescription: String? {
         switch self {
@@ -25,6 +26,8 @@ enum UnsupportedDeviceScanError: LocalizedError {
             return L10n.tr("令牌被拒绝", "The token was rejected")
         case .rejected:
             return L10n.tr("请求被服务端拒绝", "The request was rejected by the server")
+        case .plaintextNotApproved:
+            return L10n.tr("这个公网明文地址还没有得到你的同意，未发送令牌", "This public plain-http address is not approved yet; the token was not sent")
         }
     }
 }
@@ -116,6 +119,9 @@ final class UnsupportedDeviceScanner {
         let token = KeychainHelper.loadToken().trimmingCharacters(in: .whitespacesAndNewlines)
         guard !token.isEmpty else {
             throw UnsupportedDeviceScanError.notSignedIn
+        }
+        guard HAPlaintextConsent.allowsToken(to: baseURL, defaults: .standard) else {
+            throw UnsupportedDeviceScanError.plaintextNotApproved
         }
         let registry = try await readHomeAssistantRegistry(baseURL: baseURL, token: token)
         let home = DeviceSynthesizer.synthesize(

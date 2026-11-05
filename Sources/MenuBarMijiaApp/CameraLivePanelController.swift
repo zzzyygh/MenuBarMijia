@@ -510,7 +510,8 @@ public final class CameraLivePanelController: NSObject, NSWindowDelegate {
         req.cachePolicy = .reloadIgnoringLocalCacheData
         if req.value(forHTTPHeaderField: "Authorization") == nil,
            let store, store.deviceBackend(for: currentDevice?.id ?? "") == .homeAssistant,
-           targetURL.query?.contains("token=") != true {
+           targetURL.query?.contains("token=") != true,
+           HAPlaintextConsent.allowsToken(to: targetURL.absoluteString, defaults: .standard) {
             let token = KeychainHelper.loadToken().trimmingCharacters(in: .whitespacesAndNewlines)
             if !token.isEmpty {
                 req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")

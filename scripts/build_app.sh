@@ -132,6 +132,11 @@ if grep -aq "/Users/" "$APP_DIR/Contents/MacOS/MenuBarMijiaApp"; then
     exit 1
 fi
 
+# NSAllowsArbitraryLoads stays on on purpose: Home Assistant HLS camera streams, `.lan` hosts and
+# user DDNS addresses are often plain http, and ATS exceptions cannot name hosts known only at
+# runtime. Credentials are guarded in the app instead: the HA token and AI keys go only to https or
+# LocalNetworkEndpoint addresses, and any other plain-http HA address needs per-address consent
+# (HAPlaintextConsent, #276).
 cat > "$APP_DIR/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">

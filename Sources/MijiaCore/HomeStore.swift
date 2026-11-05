@@ -526,6 +526,8 @@ public final class HomeStore {
     /// Another Home Assistant address found after disconnects; only used if the user taps 切换 (#18).
     public internal(set) var pendingHAAddressSuggestion: HADiscoveredInstance?
     var dismissedHAAddressURLs: Set<String> = []
+    /// A public plain-http Home Assistant address waiting for the user to allow sending the token (#276).
+    public internal(set) var pendingHAPlaintextConsent: String?
     public internal(set) var isDiscoveringHA: Bool = false
 
     var provider: any HomeProvider

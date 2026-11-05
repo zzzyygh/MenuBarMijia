@@ -412,11 +412,35 @@ extension HomeStore {
                 }
             }
         }
+        let defaults = UncheckedUserDefaults(userDefaults)
         return HAWebSocketProvider(
             baseURLString: baseURLString,
             token: token,
-            onAddressSuggestion: callback
+            onAddressSuggestion: callback,
+            allowsToken: { HAPlaintextConsent.allowsToken(to: $0, defaults: defaults.defaults) },
+            onPlaintextConsentNeeded: { @Sendable [weak self] url in
+                Task { @MainActor [weak self] in
+                    self?.pendingHAPlaintextConsent = url
+                }
+            }
         )
+    }
+
+    /// 允许: remembers consent for this address only, then connects.
+    public func allowHAPlaintext() {
+        guard let url = pendingHAPlaintextConsent else { return }
+        pendingHAPlaintextConsent = nil
+        HAPlaintextConsent.approve(url, defaults: userDefaults)
+        rebuildLiveProvider()
+    }
+
+    /// 不连接: nothing is sent; the panel keeps the reason instead of falling back to demo data.
+    public func declineHAPlaintext() {
+        guard let url = pendingHAPlaintextConsent else { return }
+        pendingHAPlaintextConsent = nil
+        let reason = HAPlaintextConsent.declinedMessage(url)
+        if provider is HAWebSocketProvider { connectionStatus = .disconnected(reason) }
+        showToast(reason, isError: true)
     }
 
     func makeLiveProvider() -> any HomeProvider {
@@ -456,6 +480,7 @@ extension HomeStore {
     private func rebuildLiveProvider() {
         eventTask?.cancel()
         shutdownCurrentProvider()
+        pendingHAPlaintextConsent = nil
         self.provider = makeLiveProvider()
         startListening()
     }
@@ -617,6 +642,8 @@ extension HomeStore {
             complete = false
         }
         revokeCloudConsent()
+        HAPlaintextConsent.revokeAll(defaults: userDefaults)
+        pendingHAPlaintextConsent = nil
         if complete {
             showToast(L10n.tr("已退出并吊销本地保存的令牌", "Signed out and removed saved tokens"))
         } else {

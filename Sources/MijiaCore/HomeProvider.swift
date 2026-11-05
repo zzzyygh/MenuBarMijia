@@ -126,17 +126,25 @@ public actor HAWebSocketProvider: HomeProvider {
     private var lastRediscoveryAt: Date?
     /// Test seam for the LAN scan after a disconnect.
     private let rediscover: @Sendable (String) async -> [HADiscoveredInstance]
+    /// Whether the token may go to an address; public plain http needs the user's consent (#276).
+    private let allowsToken: @Sendable (String) -> Bool
+    /// Told when the address needs plaintext consent; nothing carrying the token is sent until then.
+    private let onPlaintextConsentNeeded: (@Sendable (String) -> Void)?
 
     public init(
         baseURLString: String,
         token: String,
         onAddressSuggestion: (@Sendable (HADiscoveredInstance) -> Void)? = nil,
-        rediscover: @escaping @Sendable (String) async -> [HADiscoveredInstance] = { await HADiscovery.discoverOnLAN(currentURLHint: $0) }
+        rediscover: @escaping @Sendable (String) async -> [HADiscoveredInstance] = { await HADiscovery.discoverOnLAN(currentURLHint: $0) },
+        allowsToken: @escaping @Sendable (String) -> Bool = { HAPlaintextConsent.allowsToken(to: $0, defaults: .standard) },
+        onPlaintextConsentNeeded: (@Sendable (String) -> Void)? = nil
     ) {
         self.baseURLString = Self.normalizeBaseURL(baseURLString)
         self.token = token
         self.onAddressSuggestion = onAddressSuggestion
         self.rediscover = rediscover
+        self.allowsToken = allowsToken
+        self.onPlaintextConsentNeeded = onPlaintextConsentNeeded
 
         // Bypass system proxies for direct LAN communication with NAS
         let config = URLSessionConfiguration.ephemeral
@@ -210,6 +218,11 @@ public actor HAWebSocketProvider: HomeProvider {
         while !Task.isCancelled {
             if token.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 continuation?.yield(.statusChanged(.disconnected(L10n.tr("请在设置中配置访问令牌", "Configure your access token in Settings"))))
+                return
+            }
+            guard allowsToken(baseURLString) else {
+                continuation?.yield(.statusChanged(.disconnected(HAPlaintextConsent.waitingMessage(baseURLString))))
+                onPlaintextConsentNeeded?(baseURLString)
                 return
             }
             continuation?.yield(.statusChanged(.connecting))
@@ -324,6 +337,9 @@ public actor HAWebSocketProvider: HomeProvider {
     // MARK: - Command Execution via REST Service Endpoint
 
     public func execute(_ command: DeviceCommand) async throws {
+        guard allowsToken(baseURLString) else {
+            throw HomeProviderError.networkError(HAPlaintextConsent.waitingMessage(baseURLString))
+        }
         let (domain, service, payload) = Self.mapCommandToService(command)
         guard let url = URL(string: "\(baseURLString)/api/services/\(domain)/\(service)") else {
             throw HomeProviderError.invalidURL(baseURLString)
