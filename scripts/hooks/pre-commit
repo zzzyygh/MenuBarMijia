@@ -1,11 +1,36 @@
 #!/usr/bin/env bash
 # Local commit gate. This machine's macOS renderer never matches the CI-recorded snapshot
 # baselines, so the hook skips only SnapshotTests; CI still records and compares them.
+#
+# The full gate prints every test line (~180 KB). A commit only needs the verdict, so the run goes
+# to a log file: success prints the summary lines, failure prints the failing cases plus the log's
+# tail and keeps the log. MMB_HOOK_VERBOSE=1 streams everything as before.
 set -euo pipefail
 
 ROOT_DIR="$(git rev-parse --show-toplevel)"
+CHECK=(bash "$ROOT_DIR/scripts/check.sh")
 # A worktree checked out before `--skip-snapshots` existed still gets a runnable hook.
 if grep -q -- '--skip-snapshots' "$ROOT_DIR/scripts/check.sh" 2>/dev/null; then
-    exec bash "$ROOT_DIR/scripts/check.sh" --skip-snapshots
+    CHECK+=(--skip-snapshots)
 fi
-exec bash "$ROOT_DIR/scripts/check.sh"
+
+if [ "${MMB_HOOK_VERBOSE:-0}" = "1" ]; then
+    exec "${CHECK[@]}"
+fi
+
+LOG="$(mktemp "${TMPDIR:-/tmp}/mmb-pre-commit.XXXXXX")"
+echo "🔒 提交前检查运行中（完整输出写入 ${LOG}）..."
+status=0
+"${CHECK[@]}" >"$LOG" 2>&1 || status=$?
+
+if [ "$status" -eq 0 ]; then
+    grep -E '^(✅|⚠️)|Test run with' "$LOG" || true
+    rm -f "$LOG"
+    exit 0
+fi
+
+echo "❌ 提交前检查失败（退出码 ${status}），完整日志保留在：${LOG}"
+grep -E '✘|❌|error:' "$LOG" | head -40 || true
+echo "--- 日志末尾 ---"
+tail -n 20 "$LOG"
+exit "$status"
