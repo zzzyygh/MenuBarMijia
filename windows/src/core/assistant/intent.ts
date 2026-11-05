@@ -542,9 +542,21 @@ const BARE_CATEGORY_NOUNS: Readonly<Record<IntentCategory, string>> = {
 export const BARE_CATEGORY_CANDIDATE_LIMIT = 4;
 
 /**
- * GLOSSARY `BareCategoryCommand`: 「关灯」 looks only at the same-category devices that are on.
- * One device runs directly; several use the room the panel shows, or wait for a candidate tap.
- * Shared with the macOS `BareCategoryCommand` and pinned by `Tests/Fixtures/intent_golden.json`.
+ * Closing answers with the same-category devices that are on, opening with the ones that are off.
+ * Opening offers one fewer candidate because widening what runs costs more when it guesses wrong.
+ */
+type BareCategoryDirection = "close" | "open";
+
+const BARE_CATEGORY_CANDIDATE_LIMITS: Readonly<Record<BareCategoryDirection, number>> = {
+  close: BARE_CATEGORY_CANDIDATE_LIMIT,
+  open: 3,
+};
+
+/**
+ * GLOSSARY `BareCategoryCommand`: 「关灯」 looks only at the same-category devices that are on and
+ * 「开灯」 only at the ones that are off. One device runs directly; several use the room the panel
+ * shows, or wait for a candidate tap. Shared with the macOS `BareCategoryCommand` and pinned by
+ * `Tests/Fixtures/intent_golden.json`.
  */
 export function resolveBareCategory(
   active: readonly SmartDevice[],
@@ -575,41 +587,51 @@ type BareCategoryOutcome =
   | { readonly plan: IntentPlan }
   | { readonly targetIds: readonly string[] };
 
-function bareCategoryAnswer(category: IntentCategory, room: string | null): string {
+function bareCategoryAnswer(
+  direction: BareCategoryDirection,
+  category: IntentCategory,
+  room: string | null,
+): string {
   const noun = BARE_CATEGORY_NOUNS[category] ?? "设备";
-  return room === null || room.length === 0 ? `${noun}都关着` : `${room}的${noun}都关着`;
+  const state = direction === "open" ? "都开着" : "都关着";
+  return room === null || room.length === 0 ? `${noun}${state}` : `${room}的${noun}${state}`;
 }
 
-/** The device is on, but this command cannot switch it off (a read-only camera). */
-function bareCategoryBlockedReply(category: IntentCategory): string {
-  return `${BARE_CATEGORY_NOUNS[category] ?? "设备"}开着，但无法关闭`;
+/** The device is in the state the command would change, but nothing here can change it (a read-only camera). */
+function bareCategoryBlockedReply(direction: BareCategoryDirection, category: IntentCategory): string {
+  const noun = BARE_CATEGORY_NOUNS[category] ?? "设备";
+  return direction === "open" ? `${noun}关着，但无法打开` : `${noun}开着，但无法关闭`;
 }
 
-function bareCategoryChoiceReply(devices: readonly SmartDevice[]): string {
-  return `开着：${devices.map((dev) => dev.name).join("、")}。请说出房间或设备名`;
+function bareCategoryChoiceReply(direction: BareCategoryDirection, devices: readonly SmartDevice[]): string {
+  const state = direction === "open" ? "关着" : "开着";
+  return `${state}：${devices.map((dev) => dev.name).join("、")}。请说出房间或设备名`;
 }
 
 function bareCategorySuggestions(
+  direction: BareCategoryDirection,
   candidates: readonly SmartDevice[],
   devices: readonly SmartDevice[],
   scenes: readonly HomeScene[],
 ): AssistantSuggestion[] {
-  const chips: AssistantSuggestion[] = candidates.slice(0, BARE_CATEGORY_CANDIDATE_LIMIT).map((dev) => {
-    const intent: DeviceIntent = { targetId: dev.id, operation: { kind: "power", isOn: false } };
+  const isOn = direction === "open";
+  const prefix = isOn ? "bare:on" : "bare:off";
+  const chips: AssistantSuggestion[] = candidates.slice(0, BARE_CATEGORY_CANDIDATE_LIMITS[direction]).map((dev) => {
+    const intent: DeviceIntent = { targetId: dev.id, operation: { kind: "power", isOn } };
     return {
-      id: `bare:off:${dev.id}`,
+      id: `${prefix}:${dev.id}`,
       title: IntentReply.describe([intent], devices, scenes).replace(/^已/, ""),
       confidencePercent: null,
       intents: [intent],
     };
   });
   chips.push({
-    id: "bare:off:all",
-    title: "全部关掉",
+    id: `${prefix}:all`,
+    title: isOn ? "全部打开" : "全部关掉",
     confidencePercent: null,
     intents: candidates.map((dev) => ({
       targetId: dev.id,
-      operation: { kind: "power", isOn: false } as const,
+      operation: { kind: "power", isOn } as const,
     })),
   });
   return chips;
@@ -624,23 +646,31 @@ function bareCategoryOutcome(
   scenes: readonly HomeScene[],
   options: LocalIntentParseOptions,
 ): BareCategoryOutcome | null {
-  const onlyOff = ops.length === 1 && ops[0]?.kind === "power" && !ops[0].isOn;
-  if (!onlyOff || hasScope || hasRoomWord || wanted === null || wanted.size !== 1) return null;
+  const operation = ops.length === 1 ? ops[0] : undefined;
+  if (operation?.kind !== "power" || hasScope || hasRoomWord || wanted === null || wanted.size !== 1) return null;
+  const direction: BareCategoryDirection = operation.isOn ? "open" : "close";
   const category = [...wanted][0]!;
-  // What is on is what answers the user, even when it cannot be switched off (#273 review).
-  const on = devices.filter((dev) => {
+  const sameCategory = devices.filter((dev) => {
     const deviceCat = deviceCategory(dev);
-    return dev.isOnline && isAssistantControllable(deviceCat) && wanted.has(deviceCat) && isDeviceActiveOn(dev);
+    return dev.isOnline && isAssistantControllable(deviceCat) && wanted.has(deviceCat);
   });
-  const switchable = on.filter((dev) => {
-    const intent: DeviceIntent = { targetId: dev.id, operation: { kind: "power", isOn: false } };
+  // The open rule starts when the home has more than one device of the category: a single one stays
+  // unambiguous and keeps the existing direct behavior.
+  if (direction === "open" && sameCategory.length <= 1) return null;
+  // What is on answers a close and what is off answers an open, even when the device cannot perform
+  // the operation (#273 review).
+  const affected = sameCategory.filter((dev) =>
+    direction === "close" ? isDeviceActiveOn(dev) : !isDeviceActiveOn(dev),
+  );
+  const switchable = affected.filter((dev) => {
+    const intent: DeviceIntent = { targetId: dev.id, operation: { kind: "power", isOn: direction === "open" } };
     return IntentValidator.commandsForIntent(intent, dev).length > 0;
   });
-  if (on.length > 0 && switchable.length === 0) {
+  if (affected.length > 0 && switchable.length === 0) {
     return {
       plan: {
         intents: [],
-        reply: bareCategoryBlockedReply(category),
+        reply: bareCategoryBlockedReply(direction, category),
         source: "local",
         suggestions: [],
       },
@@ -652,7 +682,7 @@ function bareCategoryOutcome(
       return {
         plan: {
           intents: [],
-          reply: bareCategoryAnswer(category, resolution.room),
+          reply: bareCategoryAnswer(direction, category, resolution.room),
           source: "local",
           suggestions: [],
         },
@@ -661,9 +691,9 @@ function bareCategoryOutcome(
       return {
         plan: {
           intents: [],
-          reply: bareCategoryChoiceReply(resolution.devices),
+          reply: bareCategoryChoiceReply(direction, resolution.devices),
           source: "local",
-          suggestions: bareCategorySuggestions(resolution.devices, devices, scenes),
+          suggestions: bareCategorySuggestions(direction, resolution.devices, devices, scenes),
         },
       };
     case "run":

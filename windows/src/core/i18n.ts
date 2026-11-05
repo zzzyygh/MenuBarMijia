@@ -155,6 +155,7 @@ const CATALOG: Readonly<Record<string, readonly [string, string]>> = {
   "地址不安全": ["地址不安全", "Insecure address"],
   "需要 API Key": ["需要 API Key", "API key needed"],
   "需要确认": ["需要确认", "Confirmation needed"],
+  "「{action}」属于高风险设备，再点一次确认执行": ["「{action}」属于高风险设备，再点一次确认执行", "「{action}」is a high-risk device. Tap again to confirm."],
   "出错提示": ["出错提示", "Error"],
   "控制失败": ["控制失败", "Control failed"],
   "撤销提示": ["撤销提示", "Undo"],

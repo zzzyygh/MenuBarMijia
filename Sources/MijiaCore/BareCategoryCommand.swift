@@ -1,11 +1,23 @@
 import Foundation
 
 /// GLOSSARY `BareCategoryCommand`: a command that names only a device category ("关灯",
-/// "turn off the lights") with no room, device name, or scope word. Closing looks at what is on
-/// right now: nothing on gets an honest answer, one device runs directly, and several use the room
-/// the panel shows or wait for a tap on a candidate.
+/// "turn on the lights") with no room, device name, or scope word. Closing looks at what is on
+/// right now and opening at what is off: nothing to change gets an honest answer, one device runs
+/// directly, and several use the room the panel shows or wait for a tap on a candidate.
 public enum BareCategoryCommand {
-    public static let candidateLimit = 4
+    /// The direction is part of the domain, not a parser flag. Closing answers with the devices that
+    /// are on, opening with the ones that are off, and opening offers one fewer candidate because
+    /// widening what runs costs more when it guesses wrong.
+    public enum Direction: Equatable, Sendable {
+        case close
+        case open
+
+        var operation: IntentOperation { .power(self == .open) }
+
+        var candidateLimit: Int { self == .open ? 3 : 4 }
+
+        var suggestionPrefix: String { self == .open ? "bare:on" : "bare:off" }
+    }
 
     /// The room the panel is showing. Identity, not the display name, decides which devices are on
     /// the page: two accounts can each have a 客厅 (ADR-0010), so `关灯` must only touch the room
@@ -21,26 +33,26 @@ public enum BareCategoryCommand {
     }
 
     public enum Resolution: Equatable, Sendable {
-        /// Nothing of the category is on; `room` is set when the panel's room had none on.
+        /// Nothing of the category would change; `room` is set when the panel's room had none.
         case none(room: String?)
-        /// Run these now: the only device on, or every device on in the panel's room.
+        /// Run these now: the only device that would change, or every such device in the panel's room.
         case run([SmartDevice])
-        /// Several are on and no room decides: offer these, most used first.
+        /// Several would change and no room decides: offer these, most used first.
         case candidates([SmartDevice])
     }
 
     public static func resolve(
-        active: [SmartDevice],
+        candidates: [SmartDevice],
         panelRoom: Room?,
         usageOrder: [String] = []
     ) -> Resolution {
-        guard !active.isEmpty else { return .none(room: nil) }
-        if active.count == 1 { return .run(active) }
+        guard !candidates.isEmpty else { return .none(room: nil) }
+        if candidates.count == 1 { return .run(candidates) }
         if let room = panelRoom, !room.id.isEmpty {
-            let inRoom = active.filter { $0.roomId == room.id }
+            let inRoom = candidates.filter { $0.roomId == room.id }
             return inRoom.isEmpty ? .none(room: room.name) : .run(inRoom)
         }
-        return .candidates(ranked(active, by: usageOrder))
+        return .candidates(ranked(candidates, by: usageOrder))
     }
 
     /// Habit order first, catalog order for everything the user has not used yet.
@@ -56,65 +68,110 @@ public enum BareCategoryCommand {
             .map(\.element)
     }
 
-    public static func answerReply(category: IntentDeviceCategory, room: String?) -> String {
+    /// What the command says when every device of the category is already in the requested state.
+    public static func answerReply(
+        direction: Direction,
+        category: IntentDeviceCategory,
+        room: String?
+    ) -> String {
         let noun = category.spokenNoun
-        guard let room else {
-            return L10n.format("%@都关着", "The %@ are all off", noun)
+        switch direction {
+        case .close:
+            guard let room else {
+                return L10n.format("%@都关着", "The %@ are all off", noun)
+            }
+            return L10n.format(
+                "%@的%@都关着",
+                "The %@ %@ are all off",
+                L10n.displayRoomName(room),
+                noun
+            )
+        case .open:
+            guard let room else {
+                return L10n.format("%@都开着", "The %@ are all on", noun)
+            }
+            return L10n.format(
+                "%@的%@都开着",
+                "The %@ %@ are all on",
+                L10n.displayRoomName(room),
+                noun
+            )
         }
-        return L10n.format(
-            "%@的%@都关着",
-            "The %@ %@ are all off",
-            L10n.displayRoomName(room),
-            noun
-        )
     }
 
-    /// The device is on, but nothing in this command can switch it off (a read-only camera, a light
-    /// without a writable power property). Saying "都关着" here would be a false reassurance.
-    public static func blockedReply(category: IntentDeviceCategory) -> String {
-        L10n.format(
-            "%@开着，但无法关闭",
-            "The %@ are on but cannot be switched off",
-            category.spokenNoun
-        )
+    /// The device is in the state the command would change, but nothing here can change it (a
+    /// read-only camera, a light without a writable power property). Claiming it is already done
+    /// would be a false reassurance.
+    public static func blockedReply(direction: Direction, category: IntentDeviceCategory) -> String {
+        switch direction {
+        case .close:
+            return L10n.format(
+                "%@开着，但无法关闭",
+                "The %@ are on but cannot be switched off",
+                category.spokenNoun
+            )
+        case .open:
+            return L10n.format(
+                "%@关着，但无法打开",
+                "The %@ are off but cannot be switched on",
+                category.spokenNoun
+            )
+        }
     }
 
     /// What a headless entry (Shortcut, URL) can say instead of running something ambiguous.
-    public static func choiceReply(_ devices: [SmartDevice]) -> String {
+    public static func choiceReply(direction: Direction, _ devices: [SmartDevice]) -> String {
         let separator = L10n.isEnglish ? ", " : "、"
-        return L10n.format(
-            "开着：%@。请说出房间或设备名",
-            "On: %@. Say a room or device name",
-            devices.map(\.name).joined(separator: separator)
-        )
+        let list = devices.map(\.name).joined(separator: separator)
+        switch direction {
+        case .close:
+            return L10n.format(
+                "开着：%@。请说出房间或设备名",
+                "On: %@. Say a room or device name",
+                list
+            )
+        case .open:
+            return L10n.format(
+                "关着：%@。请说出房间或设备名",
+                "Off: %@. Say a room or device name",
+                list
+            )
+        }
     }
 
-    /// Up to `candidateLimit` device chips plus one that closes every device still on.
+    /// Up to the direction's candidate limit plus one chip that changes every candidate.
     public static func suggestions(
+        direction: Direction,
         candidates: [SmartDevice],
         devices: [SmartDevice],
         scenes: [HomeScene]
     ) -> [AssistantSuggestion] {
         var chips: [AssistantSuggestion] = []
-        for device in candidates.prefix(candidateLimit) {
-            let intent = DeviceIntent(targetId: device.id, operation: .power(false))
+        for device in candidates.prefix(direction.candidateLimit) {
+            let intent = DeviceIntent(targetId: device.id, operation: direction.operation)
             guard let title = UserHabitMemory.suggestionTitle(for: intent, devices: devices, scenes: scenes) else {
                 continue
             }
-            chips.append(AssistantSuggestion(id: "bare:off:\(device.id)", title: title, intents: [intent]))
+            chips.append(AssistantSuggestion(
+                id: "\(direction.suggestionPrefix):\(device.id)",
+                title: title,
+                intents: [intent]
+            ))
         }
-        let allOff = candidates.map { DeviceIntent(targetId: $0.id, operation: .power(false)) }
+        let all = candidates.map { DeviceIntent(targetId: $0.id, operation: direction.operation) }
         chips.append(AssistantSuggestion(
-            id: "bare:off:all",
-            title: L10n.tr("全部关掉", "Turn All Off"),
-            intents: allOff
+            id: "\(direction.suggestionPrefix):all",
+            title: direction == .open
+                ? L10n.tr("全部打开", "Turn All On")
+                : L10n.tr("全部关掉", "Turn All Off"),
+            intents: all
         ))
         return chips
     }
 }
 
 extension IntentDeviceCategory {
-    /// Noun used when a bare-category answer says what is already off ("灯都关着").
+    /// Noun used when a bare-category answer says what is already off ("灯都关着") or on ("灯都开着").
     public var spokenNoun: String {
         switch self {
         case .light: return L10n.tr("灯", "lights")

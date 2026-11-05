@@ -306,9 +306,10 @@ public enum LocalIntentParser {
         case targets([String])
     }
 
-    /// GLOSSARY `BareCategoryCommand`: a close command that names only a category. It looks at the
-    /// devices that are on right now, not every device of that category, so "关灯" never touches a
-    /// lamp that is already off. Nil means the command is not a bare-category close.
+    /// GLOSSARY `BareCategoryCommand`: a command that names only a category. Closing looks at the
+    /// devices that are on right now and opening at the ones that are off, so "关灯" never touches a
+    /// lamp that is already off and "开灯" never offers one that is already lit. Nil means the
+    /// utterance is not a bare-category command this rule can answer.
     private static func bareCategoryOutcome(
         ops: [IntentOperation],
         wanted: Set<IntentDeviceCategory>?,
@@ -319,41 +320,63 @@ public enum LocalIntentParser {
         panelRoom: BareCategoryCommand.Room?,
         usageOrder: [String]
     ) -> BareCategoryOutcome? {
-        guard ops == [.power(false)],
+        guard ops.count == 1,
+              let operation = ops.first,
               !hasScope,
               !hasRoomWord,
               let wanted,
               wanted.count == 1,
               let category = wanted.first else { return nil }
-        // What is on is what answers the user, even when it cannot be switched off (#273 review).
-        let on = devices.filter { dev in
+        let direction: BareCategoryCommand.Direction
+        switch operation {
+        case .power(false): direction = .close
+        case .power(true): direction = .open
+        default: return nil
+        }
+        let sameCategory = devices.filter { dev in
             let deviceCategory = IntentDeviceCategory(dev)
             return dev.isOnline
                 && deviceCategory.isAssistantControllable
                 && wanted.contains(deviceCategory)
-                && dev.isActiveDevice
         }
-        let switchable = on.filter { IntentValidator.normalize(.power(false), for: $0) != nil }
-        if !on.isEmpty, switchable.isEmpty {
+        // The open rule starts when the home has more than one device of the category: a single one
+        // stays unambiguous and keeps the existing direct behavior.
+        if direction == .open, sameCategory.count <= 1 { return nil }
+        // What is on answers a close and what is off answers an open, even when the device cannot
+        // perform the operation (#273 review).
+        let affected = sameCategory.filter {
+            direction == .close ? $0.isActiveDevice : !$0.isActiveDevice
+        }
+        let switchable = affected.filter { IntentValidator.normalize(operation, for: $0) != nil }
+        if !affected.isEmpty, switchable.isEmpty {
             return .plan(IntentPlan(
                 intents: [],
-                reply: BareCategoryCommand.blockedReply(category: category),
+                reply: BareCategoryCommand.blockedReply(direction: direction, category: category),
                 source: .local
             ))
         }
-        switch BareCategoryCommand.resolve(active: switchable, panelRoom: panelRoom, usageOrder: usageOrder) {
+        switch BareCategoryCommand.resolve(candidates: switchable, panelRoom: panelRoom, usageOrder: usageOrder) {
         case .none(let room):
             return .plan(IntentPlan(
                 intents: [],
-                reply: BareCategoryCommand.answerReply(category: category, room: room),
+                reply: BareCategoryCommand.answerReply(
+                    direction: direction,
+                    category: category,
+                    room: room
+                ),
                 source: .local
             ))
         case .candidates(let candidates):
             return .plan(IntentPlan(
                 intents: [],
-                reply: BareCategoryCommand.choiceReply(candidates),
+                reply: BareCategoryCommand.choiceReply(direction: direction, candidates),
                 source: .local,
-                suggestions: BareCategoryCommand.suggestions(candidates: candidates, devices: devices, scenes: scenes)
+                suggestions: BareCategoryCommand.suggestions(
+                    direction: direction,
+                    candidates: candidates,
+                    devices: devices,
+                    scenes: scenes
+                )
             ))
         case .run(let targets):
             return .targets(targets.map(\.id))

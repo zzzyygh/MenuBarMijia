@@ -241,8 +241,8 @@ struct BareCategoryCommandTests {
         #expect(study.intents.map(\.targetId) == ["dev_study_ceiling", "dev_study_desk"])
     }
 
-    @Test("Scope words and turning on keep their existing behavior")
-    func scopeAndPowerOnUnchanged() throws {
+    @Test("Scope words keep their existing behavior")
+    func scopeUnchanged() throws {
         let scoped = try #require(Self.parse("关掉所有的灯"))
         #expect(scoped.intents.map(\.targetId) == [
             "dev_study_ceiling",
@@ -254,7 +254,143 @@ struct BareCategoryCommandTests {
         let every = try #require(Self.parse("全部关灯"))
         #expect(every.intents.count == 4)
 
-        #expect(Self.parse("打开灯") == nil)
+        let everyOn = try #require(Self.parse("打开所有的灯"))
+        #expect(everyOn.intents.count == 4)
+        #expect(everyOn.intents.allSatisfy { $0.operation == .power(true) })
+    }
+
+    // MARK: - Opening (#274)
+
+    static let darkLights = [
+        studyCeiling.off(), studyDesk.off(), bedroomLamp.off(), kitchenLight
+    ]
+
+    static func parse(_ text: String, devices: [SmartDevice], panelRoomName: String? = nil) -> IntentPlan? {
+        LocalIntentParser.parse(
+            text,
+            devices: devices,
+            scenes: [],
+            panelRoom: panelRoomName.map { BareCategoryCommand.Room(id: $0, name: $0) }
+        )
+    }
+
+    @Test("开灯 with several lights off offers three candidates plus one 全部打开")
+    func severalLightsOffOffersCandidates() throws {
+        let plan = try #require(Self.parse("开灯", devices: Self.darkLights))
+        #expect(plan.source == .local)
+        #expect(plan.intents.isEmpty)
+        #expect(plan.reply == "关着：书房吸顶灯、书房台灯、主卧床头灯、厨房灯。请说出房间或设备名")
+        #expect(plan.suggestions.map(\.title) == [
+            "打开书房吸顶灯",
+            "打开书房台灯",
+            "打开主卧床头灯",
+            "全部打开"
+        ])
+        #expect(plan.suggestions.last?.intents == [
+            DeviceIntent(targetId: "dev_study_ceiling", operation: .power(true)),
+            DeviceIntent(targetId: "dev_study_desk", operation: .power(true)),
+            DeviceIntent(targetId: "dev_bedroom_lamp", operation: .power(true)),
+            DeviceIntent(targetId: "dev_kitchen_light", operation: .power(true))
+        ])
+    }
+
+    @Test("开灯 opens the room the panel shows and answers when that room is already lit")
+    func panelRoomDecidesOpen() throws {
+        // The study is already lit; two lights elsewhere are off.
+        let mixed = [Self.studyCeiling, Self.studyDesk, Self.bedroomLamp.off(), Self.kitchenLight]
+        let study = try #require(Self.parse("开灯", devices: mixed, panelRoomName: "书房"))
+        #expect(study.intents.isEmpty)
+        #expect(study.reply == "书房的灯都开着")
+
+        let kitchen = try #require(Self.parse("开灯", devices: mixed, panelRoomName: "厨房"))
+        #expect(kitchen.intents == [
+            DeviceIntent(targetId: "dev_kitchen_light", operation: .power(true))
+        ])
+
+        let both = try #require(Self.parse("开灯", devices: Self.darkLights, panelRoomName: "书房"))
+        #expect(both.intents.map(\.targetId) == ["dev_study_ceiling", "dev_study_desk"])
+        #expect(both.suggestions.isEmpty)
+    }
+
+    @Test("开灯 with one same-category device runs it directly")
+    func oneDeviceOpensDirectly() throws {
+        let plan = try #require(Self.parse("开灯", devices: [Self.studyCeiling.off()]))
+        #expect(plan.intents == [
+            DeviceIntent(targetId: "dev_study_ceiling", operation: .power(true))
+        ])
+        #expect(plan.reply == "已打开书房吸顶灯")
+        #expect(plan.suggestions.isEmpty)
+    }
+
+    @Test("开灯 with every light already on answers instead of touching it")
+    func everythingOnAnswers() throws {
+        let plan = try #require(Self.parse(
+            "开灯",
+            devices: [Self.studyCeiling, Self.studyDesk, Self.bedroomLamp]
+        ))
+        #expect(plan.intents.isEmpty)
+        #expect(plan.suggestions.isEmpty)
+        #expect(plan.reply == "灯都开着")
+    }
+
+    @Test("Open candidate order follows the habit order")
+    func openCandidatesFollowHabitOrder() throws {
+        let plan = try #require(LocalIntentParser.parse(
+            "开灯",
+            devices: Self.darkLights,
+            scenes: [],
+            usageOrder: ["dev_bedroom_lamp", "dev_kitchen_light"]
+        ))
+        #expect(plan.suggestions.map(\.title) == [
+            "打开主卧床头灯",
+            "打开厨房灯",
+            "打开书房吸顶灯",
+            "全部打开"
+        ])
+        #expect(plan.suggestions.last?.intents.count == 4)
+    }
+
+    @Test("English bare-category opens use the same room and candidate rule")
+    func englishOpensUseTheSameRule() throws {
+        let candidates = try #require(Self.parse("turn on the lights", devices: Self.darkLights))
+        #expect(candidates.intents.isEmpty)
+        #expect(candidates.suggestions.map(\.title) == [
+            "打开书房吸顶灯",
+            "打开书房台灯",
+            "打开主卧床头灯",
+            "全部打开"
+        ])
+
+        let study = try #require(Self.parse(
+            "turn on the lights",
+            devices: Self.darkLights,
+            panelRoomName: "书房"
+        ))
+        #expect(study.intents.map(\.targetId) == ["dev_study_ceiling", "dev_study_desk"])
+    }
+
+    @Test("High-risk devices are offered as open candidates")
+    func hazardousDevicesAreCandidates() throws {
+        let rooms = [("dev_plug_study", "书房插座", "study", "书房"),
+                     ("dev_plug_bedroom", "主卧插座", "bedroom", "主卧"),
+                     ("dev_plug_living", "客厅插座", "living", "客厅")]
+        let plugs = rooms.map { id, name, roomId, roomName in
+            SmartDevice(
+                id: id, name: name, roomId: roomId, roomName: roomName,
+                model: "cuco.plug.v3", isOnline: true,
+                kind: .plug(PlugSpec(switchEntityId: "switch.\(id)", isOn: false))
+            )
+        }
+        let plan = try #require(LocalIntentParser.parse("打开插座", devices: plugs, scenes: []))
+        #expect(plan.intents.isEmpty)
+        #expect(plan.suggestions.map(\.title) == [
+            "打开书房插座",
+            "打开主卧插座",
+            "打开客厅插座",
+            "全部打开"
+        ])
+        let candidate = try #require(plan.suggestions.first?.intents.first)
+        #expect(ModelActionPolicy.needsConfirmation(candidate, devices: plugs))
     }
 }
 

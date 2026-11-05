@@ -323,8 +323,14 @@ extension HomeStore {
     /// Runs a tapped suggestion. `offersUndoBanner` shows the 撤销 banner even for one device (GrokBall pills, #114).
     public func applyAssistantSuggestion(_ suggestion: AssistantSuggestion, offersUndoBanner: Bool = false) async {
         assistantSuggestions.removeAll { $0.id == suggestion.id }
-        let reply = IntentReply.describe(suggestion.intents, devices: devices, scenes: scenes)
-        let plan = IntentPlan(intents: suggestion.intents, reply: reply, source: .model)
+        // A tapped chip is still a manual control: a hazardous device asks first (#143, #274).
+        let intents = suggestion.intents.filter { intent in
+            !ManualControlPolicy.requiresConfirmation(intent, devices: devices)
+                || allowManualControl(intent)
+        }
+        guard !intents.isEmpty else { return }
+        let reply = IntentReply.describe(intents, devices: devices, scenes: scenes)
+        let plan = IntentPlan(intents: intents, reply: reply, source: .model)
         _ = await executeIntentPlan(plan, recordedUtterance: nil, origin: .userInitiated, offersUndoBanner: offersUndoBanner)
     }
 

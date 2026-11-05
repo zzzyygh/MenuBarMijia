@@ -1316,6 +1316,130 @@ describe("Bare category commands (#273)", () => {
   });
 });
 
+describe("Bare category opens (#274)", () => {
+  const light = (id: string, name: string, roomId: string, roomName: string, isOn: boolean): SmartDevice => ({
+    id,
+    name,
+    roomId,
+    roomName,
+    model: "yeelink.light.lamp4",
+    isOnline: true,
+    kind: {
+      kind: "light",
+      entityId: `light.${id}`,
+      isOn,
+      brightnessPercent: 60,
+      colorTempKelvin: 4000,
+      minKelvin: 2700,
+      maxKelvin: 6500,
+      currentEffect: null,
+      availableEffects: [],
+    },
+  });
+
+  const plug = (id: string, name: string, roomId: string, roomName: string): SmartDevice => ({
+    id,
+    name,
+    roomId,
+    roomName,
+    model: "cuco.plug.v3",
+    isOnline: true,
+    kind: {
+      kind: "plug",
+      switchEntityId: `switch.${id}`,
+      isOn: false,
+      powerWatts: null,
+      energyKwh: null,
+      childLockEntityId: null,
+      isChildLocked: false,
+    },
+  });
+
+  async function startWithDevices(devices: SmartDevice[]): Promise<MenuMijiaWindowsApp> {
+    localStorage.setItem("menumijia.windows.settings.v2", JSON.stringify({
+      connectionMode: "demo",
+      hasCompletedOnboarding: true,
+    }));
+    const app = new MenuMijiaWindowsApp(element("#app"));
+    await setImmediate();
+    app.devices = devices;
+    app.render();
+    return app;
+  }
+
+  it("开灯 offers at most three dark lights, 全部打开 opens them, and undo restores them", async () => {
+    const app = await startWithDevices([
+      light("light.study_ceiling", "书房吸顶灯", "study", "书房", false),
+      light("light.study_desk", "书房台灯", "study", "书房", false),
+      light("light.bedroom_lamp", "主卧灯", "bedroom", "主卧", false),
+      light("light.living_lamp", "客厅落地灯", "living", "客厅", false),
+    ]);
+    await command("开灯");
+    assert.match(document.body.textContent ?? "", /关着：书房吸顶灯、书房台灯、主卧灯、客厅落地灯。请说出房间或设备名/);
+    const chips = Array.from(
+      document.querySelectorAll<HTMLElement>("[data-suggestion-id]"),
+      (node) => node.textContent ?? "",
+    );
+    assert.deepEqual(chips, ["打开书房吸顶灯", "打开书房台灯", "打开主卧灯", "全部打开"]);
+    assert.match(tile("light.study_ceiling"), /已关闭/);
+    assert.equal(app.devices.filter((device) => device.kind.kind === "light" && device.kind.isOn).length, 0);
+
+    element('[data-suggestion-id="bare:on:all"]').click();
+    await setImmediate();
+    await setImmediate();
+    assert.match(tile("light.study_ceiling"), /已开启/);
+    assert.match(tile("light.study_desk"), /已开启/);
+    assert.match(tile("light.bedroom_lamp"), /已开启/);
+    assert.match(tile("light.living_lamp"), /已开启/);
+    assert.ok(document.querySelector("#btn-undo"), "全部打开 should offer an undo banner");
+
+    await click("#btn-undo");
+    assert.match(tile("light.study_ceiling"), /已关闭/);
+    assert.match(tile("light.bedroom_lamp"), /已关闭/);
+  });
+
+  it("开灯 opens only the room the panel shows", async () => {
+    const app = await startWithDevices([
+      light("light.study_ceiling", "书房吸顶灯", "study", "书房", false),
+      light("light.study_desk", "书房台灯", "study", "书房", false),
+      light("light.bedroom_lamp", "主卧灯", "bedroom", "主卧", false),
+    ]);
+    await click('[data-room-id="study"]');
+    await command("开灯");
+    assert.match(tile("light.study_ceiling"), /已开启/);
+    assert.match(tile("light.study_desk"), /已开启/);
+    const bedroom = app.devices.find((device) => device.id === "light.bedroom_lamp");
+    assert.equal(bedroom?.kind.kind, "light");
+    assert.equal(bedroom?.kind.kind === "light" && bedroom.kind.isOn, false);
+    assert.equal(document.querySelector("[data-suggestion-id]"), null);
+
+    await click('[data-room="全部"]');
+    assert.match(tile("light.bedroom_lamp"), /已关闭/);
+  });
+
+  it("a high-risk open candidate waits for a second tap", async () => {
+    await startWithDevices([
+      plug("plug.study", "书房插座", "study", "书房"),
+      plug("plug.bedroom", "主卧插座", "bedroom", "主卧"),
+    ]);
+    await command("打开插座");
+    assert.match(document.body.textContent ?? "", /关着：书房插座、主卧插座。请说出房间或设备名/);
+    assert.match(tile("plug.study"), /已断电/);
+
+    element('[data-suggestion-id="bare:on:plug.study"]').click();
+    await setImmediate();
+    assert.match(document.body.textContent ?? "", /「打开书房插座」属于高风险设备，再点一次确认执行/);
+    assert.match(tile("plug.study"), /已断电/);
+    assert.ok(document.querySelector('[data-suggestion-id="confirm:bare"]'));
+
+    element('[data-suggestion-id="confirm:bare"]').click();
+    await setImmediate();
+    await setImmediate();
+    assert.match(tile("plug.study"), /供电中/);
+    assert.match(tile("plug.bedroom"), /已断电/);
+  });
+});
+
 describe("全关 (#23)", () => {
   it("needs a hold in the classic skin and leaves the plug on", async () => {
     startDemo();

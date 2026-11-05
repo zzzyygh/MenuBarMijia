@@ -1824,6 +1824,121 @@ describe("LocalIntentParser, DelayPhrase, UndoPhrase, and ModelIntentResolver", 
     );
     assert.equal(plan.suggestions[4]?.intents.length, 6);
   });
+
+  it("caps bare category open candidates at three plus one 全部打开 (#274)", () => {
+    const dark = (index: number): SmartDevice => ({
+      id: `light.${index}`,
+      name: `测试灯${index}`,
+      roomId: `room_${index}`,
+      roomName: `房间${index}`,
+      model: "yeelink.light.lamp4",
+      isOnline: true,
+      kind: {
+        kind: "light",
+        entityId: `light.${index}`,
+        isOn: false,
+        brightnessPercent: 60,
+        colorTempKelvin: 4000,
+        minKelvin: 2700,
+        maxKelvin: 6500,
+        currentEffect: null,
+        availableEffects: [],
+      },
+    });
+    const plan = LocalIntentParser.parse("开灯", Array.from({ length: 5 }, (_, index) => dark(index)), []);
+    assert.ok(plan);
+    assert.equal(plan.intents.length, 0);
+    assert.equal(plan.reply, "关着：测试灯0、测试灯1、测试灯2、测试灯3、测试灯4。请说出房间或设备名");
+    assert.deepEqual(
+      plan.suggestions.map((suggestion) => suggestion.id),
+      ["bare:on:light.0", "bare:on:light.1", "bare:on:light.2", "bare:on:all"],
+    );
+    assert.deepEqual(
+      plan.suggestions.map((suggestion) => suggestion.title),
+      ["打开测试灯0", "打开测试灯1", "打开测试灯2", "全部打开"],
+    );
+    // 全部打开 changes every dark light, not just the three the chips could show.
+    assert.deepEqual(
+      plan.suggestions.at(-1)?.intents.map((intent) => intent.targetId),
+      ["light.0", "light.1", "light.2", "light.3", "light.4"],
+    );
+  });
+
+  it("orders bare category open candidates by the habit order of the current time slot (#274)", () => {
+    const dark = (index: number): SmartDevice => ({
+      id: `light.${index}`,
+      name: `测试灯${index}`,
+      roomId: `room_${index}`,
+      roomName: `房间${index}`,
+      model: "yeelink.light.lamp4",
+      isOnline: true,
+      kind: {
+        kind: "light",
+        entityId: `light.${index}`,
+        isOn: false,
+        brightnessPercent: 60,
+        colorTempKelvin: 4000,
+        minKelvin: 2700,
+        maxKelvin: 6500,
+        currentEffect: null,
+        availableEffects: [],
+      },
+    });
+    const plan = LocalIntentParser.parse(
+      "开灯",
+      Array.from({ length: 4 }, (_, index) => dark(index)),
+      [],
+      { usageOrder: ["light.2", "light.0"] },
+    );
+    assert.ok(plan);
+    assert.deepEqual(
+      plan.suggestions.map((suggestion) => suggestion.title),
+      ["打开测试灯2", "打开测试灯0", "打开测试灯1", "全部打开"],
+    );
+    // The bulk chip follows the same order, so it matches what the row looked like.
+    assert.deepEqual(
+      plan.suggestions.at(-1)?.intents.map((intent) => intent.targetId),
+      ["light.2", "light.0", "light.1", "light.3"],
+    );
+  });
+
+  it("runs the only dark light a bare 开灯 names and answers when every light is on (#274)", () => {
+    const light = (id: string, isOn: boolean): SmartDevice => ({
+      id,
+      name: "书房台灯",
+      roomId: "study",
+      roomName: "书房",
+      model: "yeelink.light.lamp4",
+      isOnline: true,
+      kind: {
+        kind: "light",
+        entityId: `light.${id}`,
+        isOn,
+        brightnessPercent: 60,
+        colorTempKelvin: 4000,
+        minKelvin: 2700,
+        maxKelvin: 6500,
+        currentEffect: null,
+        availableEffects: [],
+      },
+    });
+
+    const single = LocalIntentParser.parse("开灯", [light("light.solo", false)], []);
+    assert.ok(single);
+    assert.deepEqual(single.intents, [{ targetId: "light.solo", operation: { kind: "power", isOn: true } }]);
+    assert.equal(single.reply, "已打开书房台灯");
+    assert.equal(single.suggestions.length, 0);
+
+    const everyLit = LocalIntentParser.parse(
+      "开灯",
+      [light("light.a", true), light("light.b", true)],
+      [],
+    );
+    assert.ok(everyLit);
+    assert.deepEqual(everyLit.intents, []);
+    assert.equal(everyLit.reply, "灯都开着");
+    assert.equal(everyLit.suggestions.length, 0);
+  });
 });
 
 type ConfirmationDeviceKind = "light" | "climate" | "fan" | "plug" | "vacuum" | "camera" | "sensor";

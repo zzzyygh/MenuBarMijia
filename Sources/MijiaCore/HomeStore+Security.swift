@@ -24,6 +24,12 @@ extension HomeStore {
         return true
     }
 
+    /// Gate for a manual intent, used when a tapped suggestion must keep the same hazard rule as a card.
+    func allowManualControl(_ intent: DeviceIntent) -> Bool {
+        guard let device = devices.first(where: { $0.id == intent.targetId }) else { return false }
+        return allowManualControl(intent.operation, for: device)
+    }
+
     /// Gate for a manual operation on a device. Low-risk actions pass; a hazardous action asks the
     /// installed presenter once and runs only when approved.
     func allowManualControl(_ operation: IntentOperation, for device: SmartDevice) -> Bool {

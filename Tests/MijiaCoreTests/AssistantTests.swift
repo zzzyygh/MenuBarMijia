@@ -142,7 +142,9 @@ struct AssistantTests {
     func unsureReturnsNil() {
         #expect(Self.parse("我要睡觉了") == nil)
         #expect(Self.parse("打开") == nil)
-        #expect(Self.parse("打开灯") == nil)                 // 3 lights, no room: ambiguous
+        // 3 lights, 2 of them off: a bare open offers the dark ones instead of running (#274).
+        #expect(Self.parse("打开灯")?.intents.isEmpty == true)
+        #expect(Self.parse("打开灯")?.reply == "关着：书房吸顶灯、书房台灯。请说出房间或设备名")
         #expect(Self.parse("打开书房灯关掉客厅空调") == nil)   // contradictory power verbs
         #expect(Self.parse("客厅空调调亮") == nil)            // brightness invalid for climate
         #expect(Self.parse("打开厨房灯") == nil)              // no such room

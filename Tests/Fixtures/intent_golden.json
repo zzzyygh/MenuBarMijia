@@ -473,6 +473,11 @@
         { "targetId": "dev_ceiling", "kind": "power", "value": false },
         { "targetId": "dev_desk", "kind": "power", "value": false }
       ]
+    },
+    {
+      "utterance": "开灯",
+      "expected": [],
+      "expectedReply": "灯都开着"
     }
   ],
   "commandValidationCases": [
@@ -862,6 +867,288 @@
           "utterance": "关监控",
           "expected": [],
           "expectedReply": "摄像机开着，但无法关闭"
+        }
+      ]
+    },
+    {
+      "name": "bare category opens follow the room, habit order, and the three-candidate cap",
+      "devices": [
+        {
+          "id": "dev_open_study_ceiling",
+          "name": "书房吸顶灯",
+          "roomId": "study",
+          "roomName": "书房",
+          "model": "yeelink.light.ceiling20",
+          "isOnline": true,
+          "kind": {
+            "kind": "light",
+            "entityId": "miot:dev_open_study_ceiling:2",
+            "isOn": false,
+            "brightnessPercent": 80,
+            "colorTempKelvin": 4000,
+            "minKelvin": 2700,
+            "maxKelvin": 6500,
+            "currentEffect": null,
+            "availableEffects": ["Day", "Night"]
+          }
+        },
+        {
+          "id": "dev_open_study_desk",
+          "name": "书房台灯",
+          "roomId": "study",
+          "roomName": "书房",
+          "model": "yeelink.light.lamp4",
+          "isOnline": true,
+          "kind": {
+            "kind": "light",
+            "entityId": "miot:dev_open_study_desk:2",
+            "isOn": false,
+            "brightnessPercent": 50,
+            "colorTempKelvin": 4000,
+            "minKelvin": 2700,
+            "maxKelvin": 6500,
+            "currentEffect": null,
+            "availableEffects": []
+          }
+        },
+        {
+          "id": "dev_open_bedroom_lamp",
+          "name": "主卧床头灯",
+          "roomId": "bedroom",
+          "roomName": "主卧",
+          "model": "yeelink.light.bslamp2",
+          "isOnline": true,
+          "kind": {
+            "kind": "light",
+            "entityId": "miot:dev_open_bedroom_lamp:2",
+            "isOn": false,
+            "brightnessPercent": 60,
+            "colorTempKelvin": 4000,
+            "minKelvin": 2700,
+            "maxKelvin": 6500,
+            "currentEffect": null,
+            "availableEffects": []
+          }
+        },
+        {
+          "id": "dev_open_living_lamp",
+          "name": "客厅落地灯",
+          "roomId": "living",
+          "roomName": "客厅",
+          "model": "yeelink.light.lamp4",
+          "isOnline": true,
+          "kind": {
+            "kind": "light",
+            "entityId": "miot:dev_open_living_lamp:2",
+            "isOn": false,
+            "brightnessPercent": 50,
+            "colorTempKelvin": 4000,
+            "minKelvin": 2700,
+            "maxKelvin": 6500,
+            "currentEffect": null,
+            "availableEffects": []
+          }
+        }
+      ],
+      "cases": [
+        {
+          "utterance": "打开灯",
+          "panelRoom": { "id": "study", "name": "书房" },
+          "expected": [
+            { "targetId": "dev_open_study_ceiling", "kind": "power", "value": true },
+            { "targetId": "dev_open_study_desk", "kind": "power", "value": true }
+          ],
+          "expectedReply": "已打开书房吸顶灯、书房台灯"
+        },
+        {
+          "utterance": "打开灯",
+          "usageOrder": ["dev_open_bedroom_lamp", "dev_open_study_desk"],
+          "expected": [],
+          "expectedReply": "关着：主卧床头灯、书房台灯、书房吸顶灯、客厅落地灯。请说出房间或设备名",
+          "candidates": [
+            {
+              "title": "打开主卧床头灯",
+              "expected": [{ "targetId": "dev_open_bedroom_lamp", "kind": "power", "value": true }]
+            },
+            {
+              "title": "打开书房台灯",
+              "expected": [{ "targetId": "dev_open_study_desk", "kind": "power", "value": true }]
+            },
+            {
+              "title": "打开书房吸顶灯",
+              "expected": [{ "targetId": "dev_open_study_ceiling", "kind": "power", "value": true }]
+            },
+            {
+              "title": "全部打开",
+              "expected": [
+                { "targetId": "dev_open_bedroom_lamp", "kind": "power", "value": true },
+                { "targetId": "dev_open_study_desk", "kind": "power", "value": true },
+                { "targetId": "dev_open_study_ceiling", "kind": "power", "value": true },
+                { "targetId": "dev_open_living_lamp", "kind": "power", "value": true }
+              ]
+            }
+          ]
+        },
+        {
+          "utterance": "turn on the lights",
+          "expected": [],
+          "expectedReply": "关着：书房吸顶灯、书房台灯、主卧床头灯、客厅落地灯。请说出房间或设备名",
+          "candidates": [
+            {
+              "title": "打开书房吸顶灯",
+              "expected": [{ "targetId": "dev_open_study_ceiling", "kind": "power", "value": true }]
+            },
+            {
+              "title": "打开书房台灯",
+              "expected": [{ "targetId": "dev_open_study_desk", "kind": "power", "value": true }]
+            },
+            {
+              "title": "打开主卧床头灯",
+              "expected": [{ "targetId": "dev_open_bedroom_lamp", "kind": "power", "value": true }]
+            },
+            {
+              "title": "全部打开",
+              "expected": [
+                { "targetId": "dev_open_study_ceiling", "kind": "power", "value": true },
+                { "targetId": "dev_open_study_desk", "kind": "power", "value": true },
+                { "targetId": "dev_open_bedroom_lamp", "kind": "power", "value": true },
+                { "targetId": "dev_open_living_lamp", "kind": "power", "value": true }
+              ]
+            }
+          ]
+        },
+        {
+          "utterance": "turn on the lights",
+          "panelRoom": { "id": "bedroom", "name": "主卧" },
+          "expected": [
+            { "targetId": "dev_open_bedroom_lamp", "kind": "power", "value": true }
+          ],
+          "expectedReply": "已打开主卧床头灯"
+        }
+      ]
+    },
+    {
+      "name": "a bare category open with one device runs it",
+      "devices": [
+        {
+          "id": "dev_open_solo",
+          "name": "书房台灯",
+          "roomId": "study",
+          "roomName": "书房",
+          "model": "yeelink.light.lamp4",
+          "isOnline": true,
+          "kind": {
+            "kind": "light",
+            "entityId": "miot:dev_open_solo:2",
+            "isOn": false,
+            "brightnessPercent": 50,
+            "colorTempKelvin": 4000,
+            "minKelvin": 2700,
+            "maxKelvin": 6500,
+            "currentEffect": null,
+            "availableEffects": []
+          }
+        }
+      ],
+      "cases": [
+        {
+          "utterance": "打开灯",
+          "expected": [
+            { "targetId": "dev_open_solo", "kind": "power", "value": true }
+          ],
+          "expectedReply": "已打开书房台灯"
+        },
+        {
+          "utterance": "turn on the lights",
+          "expected": [
+            { "targetId": "dev_open_solo", "kind": "power", "value": true }
+          ],
+          "expectedReply": "已打开书房台灯"
+        }
+      ]
+    },
+    {
+      "name": "high-risk devices still appear as bare category open candidates",
+      "devices": [
+        {
+          "id": "dev_open_plug_study",
+          "name": "书房插座",
+          "roomId": "study",
+          "roomName": "书房",
+          "model": "cuco.plug.v3",
+          "isOnline": true,
+          "kind": {
+            "kind": "plug",
+            "switchEntityId": "switch.open_study",
+            "isOn": false,
+            "powerWatts": null,
+            "energyKwh": null,
+            "childLockEntityId": null,
+            "isChildLocked": false
+          }
+        },
+        {
+          "id": "dev_open_plug_bedroom",
+          "name": "主卧插座",
+          "roomId": "bedroom",
+          "roomName": "主卧",
+          "model": "cuco.plug.v3",
+          "isOnline": true,
+          "kind": {
+            "kind": "plug",
+            "switchEntityId": "switch.open_bedroom",
+            "isOn": false,
+            "powerWatts": null,
+            "energyKwh": null,
+            "childLockEntityId": null,
+            "isChildLocked": false
+          }
+        },
+        {
+          "id": "dev_open_plug_living",
+          "name": "客厅插座",
+          "roomId": "living",
+          "roomName": "客厅",
+          "model": "cuco.plug.v3",
+          "isOnline": true,
+          "kind": {
+            "kind": "plug",
+            "switchEntityId": "switch.open_living",
+            "isOn": false,
+            "powerWatts": null,
+            "energyKwh": null,
+            "childLockEntityId": null,
+            "isChildLocked": false
+          }
+        }
+      ],
+      "cases": [
+        {
+          "utterance": "打开插座",
+          "expected": [],
+          "expectedReply": "关着：书房插座、主卧插座、客厅插座。请说出房间或设备名",
+          "candidates": [
+            {
+              "title": "打开书房插座",
+              "expected": [{ "targetId": "dev_open_plug_study", "kind": "power", "value": true }]
+            },
+            {
+              "title": "打开主卧插座",
+              "expected": [{ "targetId": "dev_open_plug_bedroom", "kind": "power", "value": true }]
+            },
+            {
+              "title": "打开客厅插座",
+              "expected": [{ "targetId": "dev_open_plug_living", "kind": "power", "value": true }]
+            },
+            {
+              "title": "全部打开",
+              "expected": [
+                { "targetId": "dev_open_plug_study", "kind": "power", "value": true },
+                { "targetId": "dev_open_plug_bedroom", "kind": "power", "value": true },
+                { "targetId": "dev_open_plug_living", "kind": "power", "value": true }
+              ]
+            }
+          ]
         }
       ]
     }

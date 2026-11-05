@@ -201,6 +201,103 @@ struct BareCategoryCommandStoreTests {
         #expect(executed.count == 2)
         #expect(store.devices.first { $0.id == "dev_bedroom_lamp" }?.isActiveOn == true)
     }
+
+    // MARK: - Opening (#274)
+
+    static func plug(_ id: String, _ name: String, roomId: String, roomName: String) -> SmartDevice {
+        SmartDevice(
+            id: id, name: name, roomId: roomId, roomName: roomName,
+            model: "cuco.plug.v3", isOnline: true,
+            kind: .plug(PlugSpec(switchEntityId: "switch.\(id)", isOn: false))
+        )
+    }
+
+    @Test("开灯 with several lights off asks with chips and runs nothing")
+    func openSeveralOffAsks() async throws {
+        let (store, mock) = try await Self.makeStore([
+            Self.studyCeiling.off(), Self.studyDesk.off(), Self.bedroomLamp, Self.kitchenLight
+        ])
+        let plan = try #require(await store.runAssistantCommand("开灯"))
+
+        #expect(plan.intents.isEmpty)
+        #expect(store.assistantState == .awaitingChoice("关着：书房吸顶灯、书房台灯、厨房灯。请说出房间或设备名"))
+        #expect(store.assistantSuggestions.map(\.title) == [
+            "打开书房吸顶灯",
+            "打开书房台灯",
+            "打开厨房灯",
+            "全部打开"
+        ])
+        #expect(await mock.executedCommands.isEmpty)
+    }
+
+    @Test("全部打开 opens every dark light, offers undo, and undo restores them")
+    func allOnChoiceRunsAndUndoes() async throws {
+        let (store, mock) = try await Self.makeStore([
+            Self.studyCeiling.off(), Self.studyDesk.off(), Self.bedroomLamp, Self.kitchenLight
+        ])
+        _ = await store.runAssistantCommand("开灯")
+        let allOn = try #require(store.assistantSuggestions.last)
+        #expect(allOn.title == "全部打开")
+
+        await store.applyAssistantSuggestion(allOn)
+        let executed = await mock.executedCommands
+        #expect(executed.count == 3)
+        #expect(executed.allSatisfy { command in
+            if case .setLightPower(_, let on) = command { return on }
+            return false
+        })
+        #expect(Set(executed.compactMap { command -> String? in
+            if case .setLightPower(let entityId, _) = command { return entityId }
+            return nil
+        }) == ["light.dev_study_ceiling", "light.dev_study_desk", "light.dev_kitchen_light"])
+        #expect(store.devices.filter { $0.isActiveOn }.count == 4)
+        #expect(store.undoBanner?.restoreCommands.count == 3)
+
+        let undo = try #require(store.undoTurnAllOff())
+        await undo.value
+        #expect(store.devices.filter { $0.isActiveOn }.map(\.id) == ["dev_bedroom_lamp"])
+    }
+
+    @Test("A room the panel shows decides which dark lights a bare 开灯 opens")
+    func openPanelRoomDecides() async throws {
+        let (store, mock) = try await Self.makeStore([
+            Self.studyCeiling.off(), Self.studyDesk.off(), Self.bedroomLamp, Self.kitchenLight
+        ])
+        #expect(store.selectRoom("study"))
+
+        let plan = try #require(await store.runAssistantCommand("开灯"))
+        #expect(plan.intents.map(\.targetId) == ["dev_study_ceiling", "dev_study_desk"])
+        #expect(await mock.executedCommands.count == 2)
+        #expect(store.devices.first { $0.id == "dev_kitchen_light" }?.isActiveOn == false)
+        #expect(store.undoBanner?.restoreCommands.count == 2)
+    }
+
+    @Test("A high-risk open candidate still asks before it runs")
+    func hazardousOpenCandidateAsks() async throws {
+        let studyPlug = Self.plug("dev_plug_study", "书房插座", roomId: "study", roomName: "书房")
+        let bedroomPlug = Self.plug("dev_plug_bedroom", "主卧插座", roomId: "bedroom", roomName: "主卧")
+        let (store, mock) = try await Self.makeStore([studyPlug, bedroomPlug], rooms: [])
+        _ = await store.runAssistantCommand("打开插座")
+        let candidate = try #require(store.assistantSuggestions.first { $0.title == "打开书房插座" })
+        #expect(await mock.executedCommands.isEmpty)
+
+        var prompts: [ManualControlConfirmation] = []
+        store.manualControlConfirmationHandler = { prompt in
+            prompts.append(prompt)
+            return false
+        }
+        await store.applyAssistantSuggestion(candidate)
+        #expect(prompts.count == 1)
+        #expect(await mock.executedCommands.isEmpty)
+        #expect(store.devices.allSatisfy { $0.isActiveOn == false })
+
+        store.manualControlConfirmationHandler = { _ in true }
+        await store.applyAssistantSuggestion(candidate)
+        #expect(await mock.executedCommands == [
+            .setSwitch(entityId: "switch.dev_plug_study", isOn: true)
+        ])
+        #expect(store.devices.first { $0.id == "dev_plug_study" }?.isActiveOn == true)
+    }
 }
 
 private extension SmartDevice {

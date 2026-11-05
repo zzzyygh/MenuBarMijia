@@ -589,6 +589,21 @@ import type { MenuMijiaWindowsApp } from "./app.js";
         host.pendingSuggestions = host.pendingSuggestions.filter((s) => s.id !== suggestion.id);
         const aliasedDevices = withAliases(host.layout, host.devices);
         const intents = IntentValidator.sanitize(suggestion.intents, aliasedDevices, host.scenes);
+        // Picking a bare-category open candidate is still a manual control on a high-risk device (#274).
+        if (
+          suggestion.id.startsWith("bare:on:") &&
+          intents.some((intent) => ModelActionPolicy.needsConfirmation(intent, aliasedDevices))
+        ) {
+          host.pendingSuggestions = ModelActionPolicy.chips(intents, null, "confirm:bare", aliasedDevices, host.scenes, true);
+          host.replyBanner = {
+            text: t("「{action}」属于高风险设备，再点一次确认执行", {
+              action: IntentReply.describe(intents, aliasedDevices, host.scenes).replace(/^已/, ""),
+            }),
+            source: t("需要确认"),
+          };
+          host.render();
+          return;
+        }
         void host.executeIntents(intents, IntentReply.describe(intents, aliasedDevices, host.scenes), t("已确认"), { recordHabits: true });
       });
     });
