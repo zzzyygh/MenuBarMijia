@@ -43,19 +43,35 @@ public enum HAPlaintextConsent {
         Set(defaults.stringArray(forKey: defaultsKey) ?? [])
     }
 
+    public static func host(_ baseURL: String) -> String {
+        URL(string: HAWebSocketProvider.normalizeBaseURL(baseURL))?.host ?? baseURL
+    }
+
     static func waitingMessage(_ baseURL: String) -> String {
-        let host = URL(string: HAWebSocketProvider.normalizeBaseURL(baseURL))?.host ?? baseURL
+        let host = host(baseURL)
         return L10n.tr(
             "\(host) 是公网明文地址，令牌会以明文传输。同意前不会连接。",
             "\(host) is a public plain-http address; your token would travel unencrypted. Not connecting until you agree."
         )
     }
 
-    static func declinedMessage(_ baseURL: String) -> String {
-        let host = URL(string: HAWebSocketProvider.normalizeBaseURL(baseURL))?.host ?? baseURL
+    public static func declinedMessage(_ baseURL: String) -> String {
+        let host = host(baseURL)
         return L10n.tr(
             "未连接 \(host)：你拒绝了以明文发送令牌。改用 https 或局域网地址后再连接。",
             "Not connected to \(host): you declined sending the token unencrypted. Use an https or local-network address."
         )
+    }
+}
+
+/// What the panel shows about a public plain-http Home Assistant address.
+public enum HAPlaintextPrompt: Equatable, Sendable {
+    case asking(String)
+    case declined(String)
+
+    public var address: String {
+        switch self {
+        case .asking(let url), .declined(let url): url
+        }
     }
 }

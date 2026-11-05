@@ -44,7 +44,7 @@ struct HAPlaintextConsentTests {
             token: "secret-token",
             rediscover: { _ in [] },
             allowsToken: { _ in false },
-            onPlaintextConsentNeeded: { url in Task { await asked.add(url) } }
+            onPlaintextConsentNeeded: { asked.add($0) }
         )
         var statuses: [ConnectionStatus] = []
         for await event in provider.events() {
@@ -52,8 +52,7 @@ struct HAPlaintextConsentTests {
             if case .disconnected = statuses.last { break }
         }
         #expect(statuses == [.disconnected(HAPlaintextConsent.waitingMessage(Self.publicHTTP))])
-        for _ in 0..<40 where await asked.items.isEmpty { try await Task.sleep(for: .milliseconds(25)) }
-        #expect(await asked.items == [Self.publicHTTP])
+        #expect(asked.items == [Self.publicHTTP])
 
         await #expect(throws: HomeProviderError.networkError(HAPlaintextConsent.waitingMessage(Self.publicHTTP))) {
             try await provider.execute(.setSwitch(entityId: "switch.kettle", isOn: true))
@@ -61,19 +60,25 @@ struct HAPlaintextConsentTests {
         await provider.shutdown()
     }
 
-    @Test("允许 remembers the address; 不连接 keeps a readable reason; revoke forgets every consent")
+    @Test("仍然连接 remembers the address; 不连接 keeps the reason and stops asking; revoke forgets every consent")
     @MainActor
     func storeFlow() async throws {
         let store = HomeStore(provider: MockHomeProvider(snapshot: SynthesizedHome()), defaultsSuiteName: "test.ha.plaintext.store.\(UUID().uuidString)")
+        store.serverURLString = Self.publicHTTP
 
-        store.pendingHAPlaintextConsent = Self.publicHTTP
+        store.askHAPlaintext("http://198.51.100.9:8123")
+        #expect(store.haPlaintextPrompt == nil, "a late callback for an address no longer in use is ignored")
+
+        store.askHAPlaintext(Self.publicHTTP)
+        #expect(store.haPlaintextPrompt == .asking(Self.publicHTTP))
         store.declineHAPlaintext()
-        #expect(store.pendingHAPlaintextConsent == nil)
+        #expect(store.haPlaintextPrompt == .declined(Self.publicHTTP))
         #expect(!HAPlaintextConsent.isApproved(Self.publicHTTP, defaults: store.userDefaults))
+        store.askHAPlaintext(Self.publicHTTP)
+        #expect(store.haPlaintextPrompt == .declined(Self.publicHTTP), "a refresh after 不连接 does not ask again")
 
-        store.pendingHAPlaintextConsent = Self.publicHTTP
         store.allowHAPlaintext()
-        #expect(store.pendingHAPlaintextConsent == nil)
+        #expect(store.haPlaintextPrompt == nil)
         #expect(HAPlaintextConsent.isApproved(Self.publicHTTP, defaults: store.userDefaults))
 
         store.signOutAndRevokeAll()
@@ -81,7 +86,9 @@ struct HAPlaintextConsentTests {
     }
 }
 
-actor ReportedURLs {
-    private(set) var items: [String] = []
-    func add(_ url: String) { items.append(url) }
+final class ReportedURLs: @unchecked Sendable {
+    private let lock = NSLock()
+    private var stored: [String] = []
+    var items: [String] { lock.withLock { stored } }
+    func add(_ url: String) { lock.withLock { stored.append(url) } }
 }

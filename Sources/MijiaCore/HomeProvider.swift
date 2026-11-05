@@ -221,8 +221,8 @@ public actor HAWebSocketProvider: HomeProvider {
                 return
             }
             guard allowsToken(baseURLString) else {
-                continuation?.yield(.statusChanged(.disconnected(HAPlaintextConsent.waitingMessage(baseURLString))))
                 onPlaintextConsentNeeded?(baseURLString)
+                continuation?.yield(.statusChanged(.disconnected(HAPlaintextConsent.waitingMessage(baseURLString))))
                 return
             }
             continuation?.yield(.statusChanged(.connecting))

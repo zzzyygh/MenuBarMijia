@@ -288,8 +288,8 @@ public struct ControlCenterPanel: View {
                     .transition(AppleMotion.drawerTransition)
             }
 
-            if let address = store.pendingHAPlaintextConsent {
-                haPlaintextConsentBanner(address)
+            if let prompt = store.haPlaintextPrompt {
+                haPlaintextConsentBanner(prompt)
                     .padding(.horizontal, 14)
                     .padding(.bottom, 8)
                     .transition(AppleMotion.drawerTransition)
