@@ -1,5 +1,5 @@
 {
-  "_comment": "局域网端点判断的双端共享样例（#275）：macOS 的 AssistantEndpoint.isLocalNetwork 与 Windows 的 isLocalNetworkEndpoint 都读这份用例。host 是解析后的主机名（小写、无 IPv6 方括号、无结尾点）；isLocalNetwork=true 表示该主机在本机或家庭网络内，凭据可以走明文 http。#276/#277 的 Home Assistant 令牌与明文传输同意逻辑可复用这份主机集合。反例和正例一样重要：后缀必须是真正的结尾（.lan），不能按子串匹配。",
+  "_comment": "局域网端点判断的双端共享样例（#275）：macOS 的 AssistantEndpoint.isLocalNetwork 与 Windows 的 isLocalNetworkEndpoint 都读这份用例。host 是写进 http://<host> 的主机名片段（小写、无 IPv6 方括号、无结尾点）；两端解析时会先按 WHATWG/inet_aton 规则改写 IPv4 字面量（134744072、0x08080808、010.0.0.1、127.1），再判断是否属于本机或家庭网络。isLocalNetwork=true 表示凭据可以走明文 http。#276/#277 的 Home Assistant 令牌与明文传输同意逻辑可复用这份主机集合。反例和正例一样重要：后缀必须是真正的结尾（.lan），不能按子串匹配。",
   "cases": [
     { "host": "localhost", "isLocalNetwork": true },
     { "host": "127.0.0.1", "isLocalNetwork": true },
@@ -30,6 +30,21 @@
     { "host": "router", "isLocalNetwork": true },
     { "host": "nas", "isLocalNetwork": true },
     { "host": "my-nas", "isLocalNetwork": true },
+
+    { "host": "134744072", "isLocalNetwork": false, "note": "inet_aton 写法，拆开后是 8.8.8.8" },
+    { "host": "0x08080808", "isLocalNetwork": false, "note": "十六进制写法，拆开后是 8.8.8.8" },
+    { "host": "010.0.0.1", "isLocalNetwork": false, "note": "点分八进制，拆开后是 8.0.0.1" },
+    { "host": "0x8.0x8.0x8.0x8", "isLocalNetwork": false, "note": "每段十六进制，拆开后是 8.8.8.8" },
+    { "host": "8.1", "isLocalNetwork": false, "note": "短写法，拆开后是 8.0.0.1" },
+    { "host": "0377.0377.0377.0377", "isLocalNetwork": false, "note": "点分八进制，拆开后是 255.255.255.255" },
+
+    { "host": "2130706433", "isLocalNetwork": true, "note": "inet_aton 写法，拆开后是 127.0.0.1" },
+    { "host": "0x7f000001", "isLocalNetwork": true },
+    { "host": "0177.0.0.1", "isLocalNetwork": true, "note": "拆开后是 127.0.0.1" },
+    { "host": "0xa.0x0.0x0.0x1", "isLocalNetwork": true, "note": "拆开后是 10.0.0.1" },
+    { "host": "10.1", "isLocalNetwork": true, "note": "短写法，拆开后是 10.0.0.1" },
+    { "host": "127.1", "isLocalNetwork": true, "note": "短写法，拆开后是 127.0.0.1" },
+    { "host": "10.1.2", "isLocalNetwork": true, "note": "短写法，拆开后是 10.1.0.2" },
 
     { "host": "8.8.8.8", "isLocalNetwork": false },
     { "host": "1.1.1.1", "isLocalNetwork": false },

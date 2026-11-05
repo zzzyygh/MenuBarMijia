@@ -30,6 +30,9 @@ public struct AssistantEndpoint: Equatable, Sendable {
             host.removeLast()
         }
         guard !host.isEmpty else { return nil }
+        if let ipv4 = Self.canonicalIPv4Host(host) {
+            host = ipv4
+        }
         self.scheme = scheme
         self.host = host
         self.port = components.port
@@ -97,5 +100,60 @@ public struct AssistantEndpoint: Equatable, Sendable {
             octets.append(value)
         }
         return octets
+    }
+
+    /// Rewrites WHATWG/inet_aton IPv4 spellings to dotted decimal so `134744072`, `0x7f000001`,
+    /// `0177.0.0.1`, and `127.1` classify like the addresses they actually resolve to.
+    private static func canonicalIPv4Host(_ host: String) -> String? {
+        var parts = host.split(separator: ".", omittingEmptySubsequences: false).map(String.init)
+        if parts.last == "" {
+            guard parts.count > 1 else { return nil }
+            parts.removeLast()
+        }
+        guard !parts.isEmpty, parts.count <= 4 else { return nil }
+        var numbers: [UInt64] = []
+        for part in parts {
+            guard let number = ipv4Number(part) else { return nil }
+            numbers.append(UInt64(number))
+        }
+        guard let last = numbers.last else { return nil }
+        let lastLimit: UInt64
+        switch numbers.count {
+        case 1: lastLimit = 1 << 32
+        case 2: lastLimit = 1 << 24
+        case 3: lastLimit = 1 << 16
+        default: lastLimit = 1 << 8
+        }
+        guard last < lastLimit else { return nil }
+        var value = last
+        var shift = 24
+        for number in numbers.dropLast() {
+            guard number <= 255 else { return nil }
+            value += number << UInt64(shift)
+            shift -= 8
+        }
+        return (0...3).map { String((value >> UInt64(24 - $0 * 8)) & 255) }.joined(separator: ".")
+    }
+
+    private static func ipv4Number(_ part: String) -> UInt32? {
+        guard !part.isEmpty else { return nil }
+        var text = part.lowercased()
+        var radix = 10
+        if text.count >= 2, text.hasPrefix("0x") {
+            text.removeFirst(2)
+            radix = 16
+        } else if text.count >= 2, text.hasPrefix("0") {
+            text.removeFirst()
+            radix = 8
+        }
+        if text.isEmpty { return 0 }
+        let isDigit: (Character) -> Bool
+        switch radix {
+        case 8: isDigit = { ("0"..."7").contains($0) }
+        case 16: isDigit = { ("0"..."9").contains($0) || ("a"..."f").contains($0) }
+        default: isDigit = { ("0"..."9").contains($0) }
+        }
+        guard text.allSatisfy(isDigit) else { return nil }
+        return UInt32(text, radix: radix)
     }
 }
