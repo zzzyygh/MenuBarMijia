@@ -13,6 +13,21 @@ public enum AutomationTrigger: String, CaseIterable, Codable, Identifiable, Send
     case away
     /// Screen unlocked, or the Mac/display woke up. No time-of-day condition yet.
     case back
+
+    // MARK: Precise away signals
+    //
+    // `away` stays as the coarse "something happened" trigger so rules written before the split
+    // keep working. The three cases below are produced by `AwayArbitrator`, which decides which one
+    // actually happened; macOS itself posts one lock notification and one sleep notification for a
+    // single lid close, with no field telling them apart.
+
+    /// The screen was locked while the Mac stayed awake (⌃⌘Q, hot corner, system lock).
+    /// Delivered ~2 s after the lock so a lid close can claim the event first.
+    case screenLocked
+    /// The lid was closed and the Mac then went to sleep.
+    case lidClosedSleep
+    /// The Mac went to sleep with the lid still open (Apple menu, timer, low battery).
+    case systemSleep
     case externalDisplayConnected
     case externalDisplayDisconnected
 
@@ -49,6 +64,12 @@ public enum AutomationTrigger: String, CaseIterable, Codable, Identifiable, Send
             return L10n.tr("离开（锁屏 / 合盖 / 睡眠）", "Away (lock, lid, sleep)")
         case .back:
             return L10n.tr("回来（解锁 / 唤醒）", "Back (unlock, wake)")
+        case .screenLocked:
+            return L10n.tr("锁屏（未休眠）", "Screen locked (not asleep)")
+        case .lidClosedSleep:
+            return L10n.tr("合盖休眠", "Sleep after lid close")
+        case .systemSleep:
+            return L10n.tr("休眠（未合盖）", "Sleep (lid open)")
         case .externalDisplayConnected:
             return L10n.tr("接入外接显示器", "External display connected")
         case .externalDisplayDisconnected:
@@ -86,6 +107,9 @@ public enum AutomationTrigger: String, CaseIterable, Codable, Identifiable, Send
         switch self {
         case .away: return "lock.fill"
         case .back: return "lock.open.fill"
+        case .screenLocked: return "lock.rectangle"
+        case .lidClosedSleep: return "laptopcomputer"
+        case .systemSleep: return "moon.zzz.fill"
         case .externalDisplayConnected: return "display"
         case .externalDisplayDisconnected: return "rectangle.on.rectangle"
         case .cameraInUse, .cameraNotInUse: return "video.fill"
@@ -342,25 +366,211 @@ public struct LateNightWindow: Codable, Equatable, Sendable {
 
 }
 
+// MARK: - Conditions
+
+/// The Wi-Fi part of a rule's conditions. It is AND-ed with the trigger: the trigger says *when to
+/// look*, the condition says *whether this is the moment the user meant*.
+///
+/// Matching is exact on SSID (trimmed, case-sensitive — SSIDs are case-sensitive by definition).
+/// "Not connected to any network" counts as **unsatisfied for every mode except `any`**: treating it
+/// as "not in the list" would make a `notIn` rule fire whenever Wi-Fi drops, which is the opposite of
+/// what the user configured.
+public enum AutomationWiFiCondition: Equatable, Sendable {
+    /// No Wi-Fi condition.
+    case any
+    /// Satisfied only while connected to one of these networks.
+    case inAny([String])
+    /// Satisfied while connected to a network that is not one of these.
+    case notIn([String])
+
+    /// Keeps a rule from turning into an unbounded list the UI cannot show.
+    public static let ssidLimit = 20
+
+    public init(inAny ssids: [String]) { self = .inAny(Self.normalize(ssids)) }
+
+    public init(notIn ssids: [String]) { self = .notIn(Self.normalize(ssids)) }
+
+    /// Trims, drops blanks and duplicates, preserves the user's order.
+    public static func normalize(_ ssids: [String]) -> [String] {
+        var seen = Set<String>()
+        return ssids
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .filter { seen.insert($0).inserted }
+            .prefix(ssidLimit)
+            .map { $0 }
+    }
+
+    public var isNetworkSpecific: Bool {
+        if case .any = self { return false }
+        return true
+    }
+
+    /// Networks the rule was configured with, for the settings screen and its editor.
+    public var ssids: [String] {
+        switch self {
+        case .any: return []
+        case .inAny(let list), .notIn(let list): return list
+        }
+    }
+}
+
+/// Why a Wi-Fi condition did or did not hold. The cases carry enough detail to write a usable
+/// automation log line without guessing which branch failed.
+public enum AutomationWiFiEvaluation: Equatable, Sendable {
+    case satisfied
+    /// Location permission was denied, so the SSID cannot be read at all.
+    case notAuthorized
+    /// Authorized, but no SSID was available (not connected, or the interface was already down).
+    case noNetwork
+    /// Connected, but to a network the rule does not list.
+    case networkNotListed(String)
+    /// Connected to a network the rule explicitly excludes.
+    case networkExcluded(String)
+    /// A list-based condition with no entries: treat as unsatisfied rather than "match everything".
+    case emptyList
+
+    public var isSatisfied: Bool { self == .satisfied }
+
+    /// Stable, log-friendly description (kept ASCII so it is greppable next to the other logs).
+    public var logToken: String {
+        switch self {
+        case .satisfied: return "satisfied"
+        case .notAuthorized: return "not-authorized"
+        case .noNetwork: return "no-network"
+        case .networkNotListed: return "network-not-listed"
+        case .networkExcluded: return "network-excluded"
+        case .emptyList: return "empty-list"
+        }
+    }
+}
+
+extension AutomationWiFiCondition {
+    /// - Parameters:
+    ///   - wifiSSID: Best-known SSID at the moment the trigger fired.
+    ///   - isAuthorized: Location authorization as reported by CoreWLAN.
+    public func evaluate(wifiSSID: String?, isAuthorized: Bool) -> AutomationWiFiEvaluation {
+        if case .any = self { return .satisfied }
+        guard isAuthorized else { return .notAuthorized }
+        let ssid = wifiSSID?.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let ssid, !ssid.isEmpty else { return .noNetwork }
+        let list = ssids
+        guard !list.isEmpty else { return .emptyList }
+        switch self {
+        case .any:
+            return .satisfied
+        case .inAny:
+            return list.contains(ssid) ? .satisfied : .networkNotListed(ssid)
+        case .notIn:
+            return list.contains(ssid) ? .networkExcluded(ssid) : .satisfied
+        }
+    }
+}
+
+extension AutomationWiFiCondition: Codable {
+    private enum Kind: String, Codable {
+        case any, inAny, notIn
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case kind, ssids
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        switch try container.decodeIfPresent(Kind.self, forKey: .kind) ?? .any {
+        case .any:
+            self = .any
+        case .inAny:
+            self = .inAny(Self.normalize(try container.decodeIfPresent([String].self, forKey: .ssids) ?? []))
+        case .notIn:
+            self = .notIn(Self.normalize(try container.decodeIfPresent([String].self, forKey: .ssids) ?? []))
+        }
+    }
+
+    public func encode(to encoder: any Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        switch self {
+        case .any:
+            try container.encode(Kind.any, forKey: .kind)
+        case .inAny(let list):
+            try container.encode(Kind.inAny, forKey: .kind)
+            try container.encode(list, forKey: .ssids)
+        case .notIn(let list):
+            try container.encode(Kind.notIn, forKey: .kind)
+            try container.encode(list, forKey: .ssids)
+        }
+    }
+}
+
+/// Every condition a rule must satisfy before its action runs. Empty means "trigger alone decides",
+/// which is how rules are stored before conditions existed.
+public struct AutomationConditions: Codable, Equatable, Sendable {
+    public var wifi: AutomationWiFiCondition
+
+    public init(wifi: AutomationWiFiCondition = .any) {
+        self.wifi = wifi
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case wifi
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        wifi = try container.decodeIfPresent(AutomationWiFiCondition.self, forKey: .wifi) ?? .any
+    }
+
+    public func encode(to encoder: any Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(wifi, forKey: .wifi)
+    }
+
+    public var isUnconditional: Bool { !wifi.isNetworkSpecific }
+
+    public func evaluate(wifiSSID: String?, isAuthorized: Bool) -> AutomationWiFiEvaluation {
+        wifi.evaluate(wifiSSID: wifiSSID, isAuthorized: isAuthorized)
+    }
+
+    /// One-line description for the settings list. `nil` when the rule has no conditions, so the
+    /// row keeps showing only the trigger detail it showed before.
+    public func summary() -> String? {
+        switch wifi {
+        case .any:
+            return nil
+        case .inAny(let list):
+            guard !list.isEmpty else { return nil }
+            return L10n.format("Wi-Fi：%@", "Wi-Fi: %@", list.joined(separator: L10n.tr("、", ", ")))
+        case .notIn(let list):
+            guard !list.isEmpty else { return nil }
+            return L10n.format("不在 Wi-Fi：%@", "Not on Wi-Fi: %@", list.joined(separator: L10n.tr("、", ", ")))
+        }
+    }
+}
+
 public struct AutomationRule: Codable, Identifiable, Equatable, Sendable {
     public var id: UUID
     public var isEnabled: Bool
     public var trigger: AutomationTrigger
     public var action: AutomationAction
     public var triggerOptions: AutomationTriggerOptions
+    /// AND-ed with the trigger. Older rules decode with no conditions and behave exactly as before.
+    public var conditions: AutomationConditions
 
     public init(
         id: UUID = UUID(),
         trigger: AutomationTrigger,
         action: AutomationAction,
         isEnabled: Bool = true,
-        triggerOptions: AutomationTriggerOptions = AutomationTriggerOptions()
+        triggerOptions: AutomationTriggerOptions = AutomationTriggerOptions(),
+        conditions: AutomationConditions = AutomationConditions()
     ) {
         self.id = id
         self.trigger = trigger
         self.action = action
         self.isEnabled = isEnabled
         self.triggerOptions = triggerOptions
+        self.conditions = conditions
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -369,6 +579,7 @@ public struct AutomationRule: Codable, Identifiable, Equatable, Sendable {
         case trigger
         case action
         case triggerOptions
+        case conditions
     }
 
     public init(from decoder: any Decoder) throws {
@@ -380,6 +591,8 @@ public struct AutomationRule: Codable, Identifiable, Equatable, Sendable {
         // Rules persisted before #174 have no options and must keep working unchanged.
         triggerOptions = try container.decodeIfPresent(AutomationTriggerOptions.self, forKey: .triggerOptions)
             ?? AutomationTriggerOptions()
+        conditions = try container.decodeIfPresent(AutomationConditions.self, forKey: .conditions)
+            ?? AutomationConditions()
     }
 
     public func encode(to encoder: any Encoder) throws {
@@ -389,6 +602,7 @@ public struct AutomationRule: Codable, Identifiable, Equatable, Sendable {
         try container.encode(trigger, forKey: .trigger)
         try container.encode(action, forKey: .action)
         try container.encode(triggerOptions, forKey: .triggerOptions)
+        try container.encode(conditions, forKey: .conditions)
     }
 }
 

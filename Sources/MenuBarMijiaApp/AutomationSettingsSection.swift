@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 import MijiaCore
 
@@ -11,6 +12,8 @@ struct AutomationSettingsSection: View {
     @AppStorage(URLDirectControl.allowDirectControlKey) private var allowDirectControl = false
     /// Loaded in `onAppear`; a `@State` initializer would re-decode `UserDefaults` on every render.
     @State private var rules: [AutomationRule] = []
+    /// Mirrors the Location authorization so the conditions editor can explain a silent rule.
+    @State private var locationAuthorized = MacHardwareProbe.isWiFiAuthorized
 
     @State private var newTrigger: AutomationTrigger = .away
     @State private var newActionKind: AutomationActionKind = .quickAction
@@ -26,6 +29,25 @@ struct AutomationSettingsSection: View {
     @State private var newLateNightStart = 23
     @State private var newLateNightEnd = 6
     @State private var newCalendarLeadMinutes = 1
+
+    // Conditions. Kept separate from the trigger parameters above: they apply to every trigger,
+    // not just the Wi-Fi one.
+    @State private var newWiFiMode: WiFiConditionMode = .any
+    @State private var newWiFiSSIDList = ""
+
+    private enum WiFiConditionMode: String, CaseIterable, Identifiable {
+        case any, only, exclude
+
+        var id: String { rawValue }
+
+        var title: String {
+            switch self {
+            case .any: return L10n.tr("不限", "Any")
+            case .only: return L10n.tr("只在以下 Wi-Fi", "Only on")
+            case .exclude: return L10n.tr("不在以下 Wi-Fi", "Not on")
+            }
+        }
+    }
 
     private enum AutomationActionKind: String, CaseIterable, Identifiable {
         case quickAction, scene, devices
@@ -47,6 +69,14 @@ struct AutomationSettingsSection: View {
             Text(L10n.tr(
                 "规则默认没有任何内容。锁屏、合盖、睡眠会合并成一个「离开」触发；解锁与唤醒合并成「回来」。同一触发一分钟内只执行一次。摄像头 / 麦克风、电源与电量、Wi-Fi、专注状态、日历和深夜使用等 Mac 专属触发默认关闭，按需逐条添加；Wi-Fi 名称、专注状态和日历需要系统权限，未授权时对应规则不会触发。",
                 "No rules exist by default. Lock, lid close and sleep are grouped as Away; unlock and wake as Back. The same trigger runs at most once per minute. Mac-only signals (camera/microphone, power and battery, Wi-Fi, Focus, Calendar, late-night use) are off until you add a rule. Wi-Fi name, Focus status and Calendar need system permission; without it their rules do not fire."
+            ))
+            .font(.system(size: DesignTokens.TypeSize.caption))
+            .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+
+            Text(L10n.tr(
+                "需要区分时改用三个精确触发：锁屏（未休眠）、合盖休眠、休眠（未合盖）。合盖会先锁屏再休眠，所以「锁屏」要晚约 2 秒判定，免得把合盖错认成单纯锁屏；休眠本身不等待，否则指令会赶不上机器挂起。条件是「且」的关系，例如「合盖休眠 + 只在公司 Wi-Fi」。",
+                "For finer control use the three precise triggers: Screen locked (not asleep), Sleep after lid close, and Sleep (lid open). A lid close locks before it sleeps, so “Screen locked” is decided about 2 s late to avoid mistaking a lid close for a plain lock; sleep itself is never delayed, otherwise the command would miss the suspend. Conditions are ANDed with the trigger, for example “Sleep after lid close + only on office Wi-Fi”."
             ))
             .font(.system(size: DesignTokens.TypeSize.caption))
             .foregroundStyle(.secondary)
@@ -90,6 +120,11 @@ struct AutomationSettingsSection: View {
         }
         .onAppear {
             rules = AutomationRuleStore().load()
+            locationAuthorized = MacHardwareProbe.isWiFiAuthorized
+        }
+        // Coming back from System Settings is the moment the state actually changed.
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            locationAuthorized = MacHardwareProbe.isWiFiAuthorized
         }
     }
 
@@ -153,8 +188,15 @@ struct AutomationSettingsSection: View {
         persist()
     }
 
-    /// One line under the action summary for the parameters that change trigger behavior.
+    /// One line under the action summary: the trigger's own parameter, then the conditions.
     private func triggerDetail(_ rule: AutomationRule) -> String? {
+        let triggerPart = triggerParameterDetail(rule)
+        guard let conditionPart = rule.conditions.summary() else { return triggerPart }
+        guard let triggerPart else { return conditionPart }
+        return triggerPart + " · " + conditionPart
+    }
+
+    private func triggerParameterDetail(_ rule: AutomationRule) -> String? {
         let options = rule.triggerOptions
         switch rule.trigger {
         case .batteryBelowThreshold:
@@ -220,6 +262,8 @@ struct AutomationSettingsSection: View {
                 .controlSize(.regular)
             }
 
+            conditionsEditor
+
             triggerOptionsEditor
 
             actionEditor
@@ -236,6 +280,117 @@ struct AutomationSettingsSection: View {
                 .disabled(!canAdd)
             }
         }
+    }
+
+    // MARK: - Conditions
+
+    /// AND-ed with the trigger, so it is offered for every trigger rather than only for the
+    /// "joined/left Wi-Fi" ones.
+    @ViewBuilder
+    private var conditionsEditor: some View {
+        HStack(spacing: 6) {
+            Text(L10n.tr("条件", "If"))
+                .font(.system(size: DesignTokens.TypeSize.caption))
+                .foregroundStyle(.secondary)
+            Text("Wi-Fi")
+                .font(.system(size: DesignTokens.TypeSize.caption))
+                .foregroundStyle(.secondary)
+            Picker("", selection: $newWiFiMode) {
+                ForEach(WiFiConditionMode.allCases) { mode in
+                    Text(mode.title).tag(mode)
+                }
+            }
+            .labelsHidden()
+            .frame(maxWidth: 170)
+            .controlSize(.regular)
+        }
+
+        if newWiFiMode != .any {
+            HStack(spacing: 6) {
+                TextField(
+                    L10n.tr("网络名称，多个用逗号分隔", "Network names, comma separated"),
+                    text: $newWiFiSSIDList
+                )
+                .textFieldStyle(.roundedBorder)
+                .frame(maxWidth: 230)
+                .controlSize(.regular)
+
+                Button {
+                    if let current = MacHardwareProbe.currentWiFi().ssid {
+                        appendSSID(current)
+                    }
+                } label: {
+                    Text(L10n.tr("填入当前网络", "Use current"))
+                        .font(.system(size: DesignTokens.TypeSize.caption))
+                }
+                .buttonStyle(.borderless)
+            }
+
+            if parsedSSIDs.isEmpty {
+                Text(L10n.tr(
+                    "至少填写一个网络名称，否则这条规则不会触发。",
+                    "Enter at least one network; otherwise this rule never fires."
+                ))
+                .font(.system(size: DesignTokens.TypeSize.caption))
+                .foregroundStyle(.orange)
+                .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Text(L10n.tr(
+                "精确匹配网络名称。未连接任何 Wi-Fi 时，上面两种条件都不满足，规则不会触发；未授予「定位」权限时同样不会触发。",
+                "Names are matched exactly. When no Wi-Fi is connected neither mode is satisfied and the rule stays quiet; the same applies without Location permission."
+            ))
+            .font(.system(size: DesignTokens.TypeSize.caption))
+            .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+
+            // A menu-bar-only app (LSUIElement) has no window at launch, so macOS often suppresses
+            // the Location prompt entirely. Ask once, then tell the user exactly where to grant it
+            // instead of leaving them with a rule that silently never fires.
+            if !locationAuthorized {
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Text(L10n.tr(
+                        "还没有「定位」权限，带 Wi-Fi 条件的规则不会触发。菜单栏应用可能不弹授权框，请手动允许。",
+                        "Location permission is missing, so rules with a Wi-Fi condition never fire. A menu-bar app often shows no prompt; grant it manually."
+                    ))
+                    .font(.system(size: DesignTokens.TypeSize.caption))
+                    .foregroundStyle(.orange)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                    Button {
+                        openLocationPrivacySettings()
+                    } label: {
+                        Label(
+                            L10n.tr("打开定位设置", "Open Location Settings"),
+                            systemImage: "gearshape"
+                        )
+                        .font(.system(size: DesignTokens.TypeSize.caption))
+                    }
+                    .buttonStyle(.link)
+                }
+            }
+        }
+    }
+
+    private func openLocationPrivacySettings() {
+        guard let url = URL(
+            string: "x-apple.systempreferences:com.apple.preference.security?Privacy_LocationServices"
+        ) else { return }
+        NSWorkspace.shared.open(url)
+    }
+
+    /// Comma, full-width comma, enumeration comma or newline. Normalised by the core so the stored
+    /// rule and the text the user sees cannot drift apart.
+    private var parsedSSIDs: [String] {
+        AutomationWiFiCondition.normalize(
+            newWiFiSSIDList.components(separatedBy: CharacterSet(charactersIn: ",，、\n"))
+        )
+    }
+
+    private func appendSSID(_ ssid: String) {
+        guard !parsedSSIDs.contains(ssid) else { return }
+        let existing = parsedSSIDs + [ssid]
+        newWiFiSSIDList = existing.joined(separator: L10n.tr("、", ", "))
     }
 
     // MARK: - Trigger Parameters (#174)
@@ -419,6 +574,9 @@ struct AutomationSettingsSection: View {
     }
 
     private var canAdd: Bool {
+        // A network condition with no network would never fire; refuse it instead of storing a
+        // dead rule the user cannot debug.
+        if newWiFiMode != .any, parsedSSIDs.isEmpty { return false }
         switch newActionKind {
         case .quickAction:
             return true
@@ -448,7 +606,18 @@ struct AutomationSettingsSection: View {
             lateNightEndHour: newLateNightEnd,
             calendarLeadMinutes: newCalendarLeadMinutes
         )
-        rules.append(AutomationRule(trigger: newTrigger, action: action, triggerOptions: options))
+        let wifi: AutomationWiFiCondition
+        switch newWiFiMode {
+        case .any: wifi = .any
+        case .only: wifi = .inAny(parsedSSIDs)
+        case .exclude: wifi = .notIn(parsedSSIDs)
+        }
+        rules.append(AutomationRule(
+            trigger: newTrigger,
+            action: action,
+            triggerOptions: options,
+            conditions: AutomationConditions(wifi: wifi)
+        ))
         newDeviceIds = []
         persist()
     }

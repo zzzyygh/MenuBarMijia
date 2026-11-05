@@ -2,6 +2,21 @@ import AppKit
 import CoreGraphics
 import Foundation
 import MijiaCore
+import os
+
+/// The two values away-arbitration needs at the instant a notification arrives.
+///
+/// Injected so unit tests can drive lid state and SSID without a real lid or a Location grant.
+@MainActor
+struct AutomationEnvironmentProbe {
+    var isLidClosed: () -> Bool
+    var currentWiFi: () -> (ssid: String?, isAuthorized: Bool)
+
+    static let live = AutomationEnvironmentProbe(
+        isLidClosed: { MacHardwareProbe.isLidClosed() },
+        currentWiFi: { MacHardwareProbe.currentWiFi() }
+    )
+}
 
 /// Observes Mac state and runs the user's automation rules (#59).
 ///
@@ -31,6 +46,8 @@ final class AutomationEngine {
     private let deduper: AutomationTriggerDeduper
     private let injectedContextProvider: (any MacContextProviding)?
     private let calendar: Calendar
+    private let environment: AutomationEnvironmentProbe
+    private let logger = Logger(subsystem: "com.jryang1997.MenuBarMijia", category: "Automation")
     private weak var store: HomeStore?
     private var tokens: [any NSObjectProtocol] = []
     private var lastExternalDisplayCount: Int
@@ -40,17 +57,43 @@ final class AutomationEngine {
     /// using the computer” for late-night rules.
     private var isUserPresent = true
 
+    // MARK: Away arbitration state
+
+    private var arbitrator = AwayArbitrator()
+    /// SSID captured the moment the screen locked. A lid close locks first, so this is the freshest
+    /// value available before the Wi-Fi interface is torn down for suspend.
+    private var lockTimeWiFi: WiFiReading?
+    /// Last reading from the 10 s context poll, including "authorized but no network" results.
+    private var lastKnownWiFi: WiFiReading?
+    private var arbitrationTask: Task<Void, Never>?
+
+    struct WiFiReading: Equatable, Sendable {
+        var ssid: String?
+        var isAuthorized: Bool
+        var capturedAt: Date
+
+        /// A cached reading is only trustworthy for a short while; a disconnect minutes ago must
+        /// not be reported as "still on that network".
+        static let maxAge: TimeInterval = 120
+
+        func isFresh(at now: Date) -> Bool {
+            now.timeIntervalSince(capturedAt) <= Self.maxAge
+        }
+    }
+
     /// `defaults` and `contextProvider` are injectable for tests; the app always uses `.standard`
     /// and the real CoreMediaIO/CoreWLAN/EventKit observer.
     init(
         defaults: UserDefaults = .standard,
         contextProvider: (any MacContextProviding)? = nil,
-        calendar: Calendar = .current
+        calendar: Calendar = .current,
+        environment: AutomationEnvironmentProbe = .live
     ) {
         self.ruleStore = AutomationRuleStore(defaults: defaults)
         self.deduper = AutomationTriggerDeduper(defaults: defaults)
         self.injectedContextProvider = contextProvider
         self.calendar = calendar
+        self.environment = environment
         self.lastExternalDisplayCount = Self.activeExternalDisplayCount()
     }
 
@@ -66,6 +109,12 @@ final class AutomationEngine {
         let distributed = DistributedNotificationCenter.default()
         observe(distributed, Notification.Name("com.apple.screenIsLocked"), .away)
         observe(distributed, Notification.Name("com.apple.screenIsUnlocked"), .back)
+
+        // Precise away triggers. The coarse `away`/`back` observers above stay so rules written
+        // before the split keep firing; `AwayArbitrator` decides which precise one happened.
+        observeAway(workspace, NSWorkspace.willSleepNotification, .willSleep)
+        observeAway(distributed, Notification.Name("com.apple.screenIsLocked"), .screenLocked)
+        observeAway(distributed, Notification.Name("com.apple.screenIsUnlocked"), .screenUnlocked)
 
         // AppKit has no public “display connected” notification; enumerating active displays is the
         // documented substitute. Resolution-only changes keep the same count and are ignored.
@@ -119,7 +168,7 @@ final class AutomationEngine {
     /// calling this directly. Observers above do exactly the same thing.
     func handle(trigger: AutomationTrigger, at now: Date = Date()) async {
         switch trigger {
-        case .away:
+        case .away, .screenLocked, .lidClosedSleep, .systemSleep:
             isUserPresent = false
         case .back:
             isUserPresent = true
@@ -130,8 +179,34 @@ final class AutomationEngine {
         let rules = AutomationMatcher.rules(for: trigger, in: ruleStore.load())
         // An empty list must not burn the cooldown; the user may add a rule a moment later.
         guard !rules.isEmpty else { return }
-        guard deduper.shouldFire(trigger, at: now) else { return }
-        for rule in rules {
+
+        // Conditions filter before the cooldown is consumed: a lock that arrives on the wrong
+        // network must leave the trigger available for the next one.
+        let reading = wifiReadingForDispatch(at: now)
+        let eligible = rules.filter { rule in
+            let result = rule.conditions.evaluate(
+                wifiSSID: reading?.ssid,
+                isAuthorized: reading?.isAuthorized ?? true
+            )
+            logger.notice(
+                """
+                rule-check trigger=\(trigger.rawValue, privacy: .public) \
+                rule=\(rule.id.uuidString.prefix(8), privacy: .public) \
+                wifi=\(result.logToken, privacy: .public) \
+                ssid=\(reading?.ssid ?? "-", privacy: .public) \
+                verdict=\(result.isSatisfied ? "run" : "skip", privacy: .public)
+                """
+            )
+            return result.isSatisfied
+        }
+        guard !eligible.isEmpty else { return }
+        guard deduper.shouldFire(trigger, at: now) else {
+            logger.notice(
+                "rule-cooldown trigger=\(trigger.rawValue, privacy: .public) suppressed"
+            )
+            return
+        }
+        for rule in eligible {
             await execute(rule, store: store)
         }
     }
@@ -142,6 +217,13 @@ final class AutomationEngine {
     func handle(context: MacContextSnapshot, at now: Date = Date()) async {
         var effective = context
         effective.isUserPresent = isUserPresent && context.isUserPresent
+        // Keep the most recent poll result as the last-resort SSID source for a sleep that arrives
+        // without a preceding lock (the interface is already down by then).
+        lastKnownWiFi = WiFiReading(
+            ssid: context.wifiSSID,
+            isAuthorized: context.isWiFiAuthorized,
+            capturedAt: now
+        )
         let previous = lastContext
         lastContext = effective
         guard let store else { return }
@@ -176,6 +258,108 @@ final class AutomationEngine {
             }
         }
         tokens.append(token)
+    }
+
+    // MARK: - Away arbitration
+
+    private func observeAway(
+        _ center: NotificationCenter,
+        _ name: Notification.Name,
+        _ signal: AwaySignal
+    ) {
+        let token = center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                Task { @MainActor in
+                    await self.ingestAway(signal)
+                }
+            }
+        }
+        tokens.append(token)
+    }
+
+    /// Feeds one system notification through the arbiter and runs whatever it settles on.
+    /// Also the test seam: the notifying systems cannot post inside a unit test.
+    func ingestAway(_ signal: AwaySignal, at now: Date = Date()) async {
+        if signal == .screenLocked {
+            // Read the SSID while the interface is certainly still up: a lid close locks *before*
+            // it suspends, so this is the freshest reading a sleep can ever consult.
+            lockTimeWiFi = captureWiFi(at: now)
+        }
+        let lidClosed = environment.isLidClosed()
+        let outcome = arbitrator.ingest(signal, lidClosed: lidClosed, at: now)
+        // Values are computed first: OSLog interpolation becomes a closure, which would require
+        // explicit `self.` for every property read inside the message.
+        let signalName = String(describing: signal)
+        let outcomeName = outcome.map { String(describing: $0) } ?? "wait"
+        let pending = arbitrator.hasPendingLock
+        logger.notice(
+            """
+            away-signal signal=\(signalName, privacy: .public) \
+            lidClosed=\(lidClosed, privacy: .public) \
+            pending=\(pending, privacy: .public) \
+            outcome=\(outcomeName, privacy: .public)
+            """
+        )
+        scheduleArbitrationFlush()
+        if let outcome {
+            await dispatchAway(outcome, at: now)
+        }
+    }
+
+    /// Runs when the pending-lock deadline is reached.
+    func flushArbitration(at now: Date = Date()) async {
+        guard let outcome = arbitrator.flush(at: now) else { return }
+        logger.notice("away-flush outcome=\(String(describing: outcome), privacy: .public)")
+        await dispatchAway(outcome, at: now)
+    }
+
+    private func scheduleArbitrationFlush() {
+        arbitrationTask?.cancel()
+        guard let deadline = arbitrator.pendingDeadline else { return }
+        let delay = max(0, deadline.timeIntervalSinceNow)
+        arbitrationTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(delay))
+            guard !Task.isCancelled else { return }
+            await self?.flushArbitration(at: Date())
+        }
+    }
+
+    private func dispatchAway(_ outcome: AwayOutcome, at now: Date) async {
+        await handle(trigger: outcome.trigger, at: now)
+        // The lock-time snapshot served its purpose; the next event takes a fresh reading.
+        lockTimeWiFi = nil
+    }
+
+    private func captureWiFi(at now: Date) -> WiFiReading {
+        let reading = environment.currentWiFi()
+        return WiFiReading(ssid: reading.ssid, isAuthorized: reading.isAuthorized, capturedAt: now)
+    }
+
+    /// Best-known network at dispatch time. Order: the lock-time snapshot → a live read → the last
+    /// poll. A live read that succeeds with "no network" is authoritative and must not be replaced
+    /// by a cached SSID, otherwise a rule would fire on a network the Mac already left.
+    private func wifiReadingForDispatch(at now: Date) -> WiFiReading? {
+        if let lockTimeWiFi, lockTimeWiFi.isFresh(at: now) {
+            logger.notice("wifi-source lock-time ssid=\(lockTimeWiFi.ssid ?? "-", privacy: .public)")
+            return lockTimeWiFi
+        }
+        let live = captureWiFi(at: now)
+        if live.ssid != nil || !live.isAuthorized {
+            logger.notice(
+                """
+                wifi-source live ssid=\(live.ssid ?? "-", privacy: .public) \
+                authorized=\(live.isAuthorized, privacy: .public)
+                """
+            )
+            return live
+        }
+        if let cached = lastKnownWiFi, cached.isFresh(at: now), cached.ssid != nil {
+            logger.notice("wifi-source cached ssid=\(cached.ssid ?? "-", privacy: .public)")
+            return cached
+        }
+        logger.notice("wifi-source none")
+        return live
     }
 
     private func screenConfigurationChanged() {

@@ -7,6 +7,7 @@ import CoreWLAN
 import EventKit
 import Foundation
 import Intents
+import IOKit
 import IOKit.ps
 import MijiaCore
 
@@ -293,6 +294,45 @@ final class MacContextObserver: MacContextProviding {
 
     private static func isDeclined(_ event: EKEvent) -> Bool {
         event.attendees?.first(where: { $0.isCurrentUser })?.participantStatus == .declined
+    }
+}
+
+// MARK: - On-demand hardware probe
+
+/// Reads the two values away-arbitration needs *at the instant a notification arrives*.
+///
+/// The 10 s context poll is too coarse for both: a lock and a sleep can land inside one interval,
+/// and the Wi-Fi interface may already be down by the time the next poll would run.
+@MainActor
+enum MacHardwareProbe {
+    private static let locationManager = CLLocationManager()
+
+    static var isWiFiAuthorized: Bool {
+        let status = locationManager.authorizationStatus
+        return status == .authorizedAlways || status == .authorized
+    }
+
+    /// Reads the SSID now. `isAuthorized == false` means "cannot know", which callers must never
+    /// treat as "not connected" — that would invert the meaning of an exclusion rule.
+    static func currentWiFi() -> (ssid: String?, isAuthorized: Bool) {
+        let authorized = isWiFiAuthorized
+        guard authorized else { return (nil, false) }
+        return (CWWiFiClient.shared().interface()?.ssid(), true)
+    }
+
+    /// `IOPMrootDomain`'s `AppleClamshellState` is true while the lid is shut. It needs no TCC grant
+    /// and stays true in clamshell mode with an external display attached.
+    static func isLidClosed() -> Bool {
+        let service = IOServiceGetMatchingService(kIOMainPortDefault, IOServiceMatching("IOPMrootDomain"))
+        guard service != 0 else { return false }
+        defer { IOObjectRelease(service) }
+        guard let value = IORegistryEntryCreateCFProperty(
+            service,
+            "AppleClamshellState" as CFString,
+            kCFAllocatorDefault,
+            0
+        )?.takeRetainedValue() as? Bool else { return false }
+        return value
     }
 }
 

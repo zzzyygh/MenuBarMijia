@@ -100,7 +100,10 @@ public enum MacContextAutomation {
         let options = rule.triggerOptions
 
         switch rule.trigger {
-        case .away, .back, .externalDisplayConnected, .externalDisplayDisconnected:
+        case .away, .back, .externalDisplayConnected, .externalDisplayDisconnected,
+             .screenLocked, .lidClosedSleep, .systemSleep:
+            // Notification-driven, including the three precise away triggers. `AwayArbitrator`
+            // settles those in the app layer; this switch only owns polled signals.
             return []
 
         case .cameraInUse:
@@ -194,7 +197,13 @@ public enum MacContextAutomation {
     }
 
     public static func requiredPermissions(for rules: [AutomationRule]) -> Set<AutomationPermission> {
-        Set(rules.filter(\.isEnabled).compactMap(\.trigger.requiredPermission))
+        var permissions = Set(rules.filter(\.isEnabled).compactMap(\.trigger.requiredPermission))
+        // A network condition needs Location even when the trigger itself does not, otherwise an
+        // "away + only on this Wi-Fi" rule would silently never match.
+        if rules.contains(where: { $0.isEnabled && $0.conditions.wifi.isNetworkSpecific }) {
+            permissions.insert(.location)
+        }
+        return permissions
     }
 
     private static func transitionEvent(_ rule: AutomationRule) -> AutomationTriggerEvent {
