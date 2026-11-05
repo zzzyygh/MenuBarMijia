@@ -523,8 +523,45 @@ public enum CoverSubtype: String, Equatable, Sendable {
         "window-opener": .windowOpener,
     ]
 
+    /// Home Assistant `cover` device classes → subtype. An unlisted class is a window opener, the
+    /// same fallback an unknown MIoT service gets.
+    private static let homeAssistantDeviceClassSubtypes: [String: CoverSubtype] = [
+        "curtain": .curtain,
+        "blind": .curtain,
+        "shade": .curtain,
+        "shutter": .curtain,
+        "awning": .curtain,
+        "damper": .curtain,
+        "window": .windowOpener,
+        "garage": .garageDoor,
+        "gate": .garageDoor,
+        "door": .garageDoor,
+    ]
+
     public init(miotServiceShortName: String?) {
         self = Self.miotServiceSubtypes[miotServiceShortName ?? ""] ?? .windowOpener
+    }
+
+    /// Home Assistant reports the class separately from the entity name. Without a class, the
+    /// name decides; a name that matches nothing stays a window opener and asks before opening.
+    public init(homeAssistantDeviceClass: String?, name: String?) {
+        let deviceClass = homeAssistantDeviceClass?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        if let deviceClass, !deviceClass.isEmpty {
+            self = Self.homeAssistantDeviceClassSubtypes[deviceClass] ?? .windowOpener
+            return
+        }
+        let name = (name ?? "").lowercased()
+        if name.contains("帘") || name.contains("curtain") || name.contains("blind") {
+            self = .curtain
+        } else if name.contains("车库") || name.contains("大门")
+                    || name.contains("garage") || name.contains("gate") {
+            self = .garageDoor
+        } else {
+            // Names with 窗 / window, and names matching nothing, are both window openers.
+            self = .windowOpener
+        }
     }
 }
 

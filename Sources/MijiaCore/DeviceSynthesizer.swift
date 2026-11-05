@@ -316,6 +316,7 @@ public enum DeviceSynthesizer {
             guard eid.hasPrefix("light.") || eid.hasPrefix("climate.")
                     || eid.hasPrefix("fan.") || eid.hasPrefix("vacuum.")
                     || eid.hasPrefix("camera.") || eid.hasPrefix("switch.")
+                    || eid.hasPrefix("cover.")
                     || eid.hasPrefix("media_player.") || eid.hasPrefix("sensor.")
                     || eid.hasPrefix("binary_sensor.") || eid.hasPrefix("button.") else { continue }
             let entity = entityById[eid]
@@ -622,7 +623,22 @@ public enum DeviceSynthesizer {
     ) -> SmartDevice? {
         let eids = entities.map(\.entity_id)
 
-        // 1. Climate (AC / Baseboard Heater)
+        // 1. Cover (curtain, window opener, garage door…)
+        if let coverId = eids.first(where: { $0.hasPrefix("cover.") }),
+           let st = states[coverId] {
+            let spec = parseCoverSpec(entityId: coverId, name: name, state: st)
+            return SmartDevice(
+                id: deviceId,
+                name: name,
+                roomId: roomId,
+                roomName: roomName,
+                model: model,
+                isOnline: st.isAvailable,
+                kind: .cover(spec)
+            )
+        }
+
+        // 2. Climate (AC / Baseboard Heater)
         if let climateId = eids.first(where: { $0.hasPrefix("climate.") }),
            let st = states[climateId] {
             let spec = parseClimateSpec(entityId: climateId, state: st)
@@ -637,7 +653,7 @@ public enum DeviceSynthesizer {
             )
         }
 
-        // 2. Primary Light (excluding indicator lights)
+        // 3. Primary Light (excluding indicator lights)
         let primaryLights = entities.filter { ent in
             ent.entity_id.hasPrefix("light.")
                 && ent.entity_category != "config"
@@ -676,7 +692,7 @@ public enum DeviceSynthesizer {
             )
         }
 
-        // 3. Fan & Air Purifier
+        // 4. Fan & Air Purifier
         if let fanId = eids.first(where: { $0.hasPrefix("fan.") }),
            let st = states[fanId] {
             let isOn = (st.state == "on")
@@ -743,7 +759,7 @@ public enum DeviceSynthesizer {
             )
         }
 
-        // 4. Vacuum
+        // 5. Vacuum
         if let vacId = eids.first(where: { $0.hasPrefix("vacuum.") }),
            let st = states[vacId] {
             let batId = eids.first(where: { $0.hasPrefix("sensor.") && $0.contains("battery_level") })
@@ -773,7 +789,7 @@ public enum DeviceSynthesizer {
             )
         }
 
-        // 5. Smart Refrigerator (midjd6.fridge.*)
+        // 6. Smart Refrigerator (midjd6.fridge.*)
         if model.contains("fridge") || eids.contains(where: { $0.contains("midjd6") }) {
             let modeId = eids.first(where: { $0.hasPrefix("select.") && $0.contains("mode") })
             let modeSt = modeId.flatMap { states[$0] }
@@ -814,7 +830,7 @@ public enum DeviceSynthesizer {
             )
         }
 
-        // 5b. Smart Camera (camera.* or camera model with control switches)
+        // 6b. Smart Camera (camera.* or camera model with control switches)
         let cameraEntityId = eids.first(where: { $0.hasPrefix("camera.") })
         let isCameraModel = model.contains("camera") || model.contains("cateye") || model.contains("doorbell")
         if cameraEntityId != nil || isCameraModel {
@@ -968,7 +984,7 @@ public enum DeviceSynthesizer {
             )
         }
 
-        // 7. Smart Speaker / TV (media_player.*)
+        // 8. Smart Speaker / TV (media_player.*)
         if let mediaId = eids.first(where: { $0.hasPrefix("media_player.") }),
            let st = states[mediaId] {
             let volDouble = st.attributes["volume_level"]?.doubleValue ?? 0.2
@@ -1063,7 +1079,7 @@ public enum DeviceSynthesizer {
             )
         }
 
-        // 9. Standalone Action Button (e.g. Home Assistant Wake on LAN button.* entities, #100)
+        // 10. Standalone Action Button (e.g. Home Assistant Wake on LAN button.* entities, #100)
         let primaryButtons = entities.filter { entity in
             guard entity.entity_id.hasPrefix("button."), entity.entity_category == nil else { return false }
             if let devClass = states[entity.entity_id]?.attributes["device_class"]?.stringValue,
@@ -1126,6 +1142,53 @@ public enum DeviceSynthesizer {
             return L10n.tr("锁状态未知", "Lock status unknown")
         }
     }
+
+    private static func parseCoverSpec(entityId: String, name: String, state st: HAEntityState) -> CoverSpec {
+        let attrs = st.attributes
+        let currentPosition = attrs["current_position"]?.doubleValue
+            .flatMap(Self.roundedInt)
+            .map { max(0, min(100, $0)) }
+        let motion: CoverMotion = switch st.state.lowercased() {
+        case "opening": .opening
+        case "closing": .closing
+        default: .stopped
+        }
+        let position: Int?
+        if let currentPosition {
+            position = currentPosition
+        } else if st.state.lowercased() == "open" {
+            position = 100
+        } else if st.state.lowercased() == "closed" {
+            position = 0
+        } else {
+            position = nil
+        }
+        // Home Assistant's CoverEntityFeature.SET_POSITION. A cover without the bit only gets the
+        // open / stop / close buttons, never a slider that its integration cannot write.
+        let positionWritable = attrs["supported_features"]?.intValue
+            .map { $0 & Self.haCoverSetPositionFeature != 0 } ?? false
+        let friendlyName = attrs["friendly_name"]?.stringValue
+        let inferenceName = [friendlyName, name]
+            .compactMap { $0 }
+            .filter { !$0.isEmpty }
+            .joined(separator: " ")
+
+        return CoverSpec(
+            entityId: entityId,
+            subtype: CoverSubtype(
+                homeAssistantDeviceClass: attrs["device_class"]?.stringValue,
+                name: inferenceName
+            ),
+            positionPercent: position,
+            positionWritable: positionWritable,
+            openDescription: "open",
+            closeDescription: "close",
+            pauseDescription: "stop",
+            motion: motion
+        )
+    }
+
+    private static let haCoverSetPositionFeature = 4
 
     private static func parseClimateSpec(entityId: String, state st: HAEntityState) -> ClimateSpec {
         let isOn = st.isAvailable && st.state != "off"

@@ -165,7 +165,7 @@ struct AppSupportDiagnosticsTests {
 
         let byId = Dictionary(uniqueKeysWithValues: skipped.map { ($0.id, $0.reason) })
         #expect(byId["dev-light"] == nil)
-        #expect(byId["dev-cover"] == .unsupportedEntities)
+        #expect(byId["dev-cover"] == nil, "a cover now synthesizes a card (#280)")
         #expect(byId["dev-hidden"] == .noActiveEntities)
         #expect(byId["dev-disabled"] == .deviceDisabled)
         #expect(byId["dev-dlna"] == .filteredDuplicate)
