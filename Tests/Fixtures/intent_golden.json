@@ -1151,6 +1151,142 @@
           ]
         }
       ]
+    },
+    {
+      "name": "a bare category open with one dark plug auto-resolves to run",
+      "devices": [
+        {
+          "id": "dev_run_plug_study",
+          "name": "书房插座",
+          "roomId": "study",
+          "roomName": "书房",
+          "model": "cuco.plug.v3",
+          "isOnline": true,
+          "kind": {
+            "kind": "plug",
+            "switchEntityId": "switch.run_study",
+            "isOn": false,
+            "powerWatts": 12.5,
+            "energyKwh": null,
+            "childLockEntityId": null,
+            "isChildLocked": false
+          }
+        },
+        {
+          "id": "dev_run_plug_living",
+          "name": "客厅插座",
+          "roomId": "living",
+          "roomName": "客厅",
+          "model": "cuco.plug.v3",
+          "isOnline": true,
+          "kind": {
+            "kind": "plug",
+            "switchEntityId": "switch.run_living",
+            "isOn": true,
+            "powerWatts": 30,
+            "energyKwh": null,
+            "childLockEntityId": null,
+            "isChildLocked": false
+          }
+        }
+      ],
+      "cases": [
+        {
+          "utterance": "打开插座",
+          "expected": [
+            { "targetId": "dev_run_plug_study", "kind": "power", "value": true }
+          ],
+          "expectedReply": "已打开书房插座"
+        }
+      ]
+    },
+    {
+      "name": "a panel room auto-resolves several dark heaters",
+      "devices": [
+        {
+          "id": "dev_run_heater_study",
+          "name": "书房电暖器",
+          "roomId": "study",
+          "roomName": "书房",
+          "model": "zhimi.heater.za2",
+          "isOnline": true,
+          "kind": {
+            "kind": "climate",
+            "entityId": "miot:dev_run_heater_study:2",
+            "isOn": false,
+            "hvacMode": "off",
+            "availableModes": ["off", "heat"],
+            "targetTemperature": 20,
+            "currentTemperature": 18,
+            "minTemp": 18,
+            "maxTemp": 28,
+            "step": 1,
+            "fanMode": null,
+            "availableFanModes": [],
+            "swingMode": null,
+            "availableSwingModes": []
+          }
+        },
+        {
+          "id": "dev_run_heater_study_desk",
+          "name": "书房暖风机",
+          "roomId": "study",
+          "roomName": "书房",
+          "model": "zhimi.heater.za2",
+          "isOnline": true,
+          "kind": {
+            "kind": "climate",
+            "entityId": "miot:dev_run_heater_study_desk:2",
+            "isOn": false,
+            "hvacMode": "off",
+            "availableModes": ["off", "heat"],
+            "targetTemperature": 22,
+            "currentTemperature": 19,
+            "minTemp": 18,
+            "maxTemp": 28,
+            "step": 1,
+            "fanMode": null,
+            "availableFanModes": [],
+            "swingMode": null,
+            "availableSwingModes": []
+          }
+        },
+        {
+          "id": "dev_run_heater_living",
+          "name": "客厅电暖器",
+          "roomId": "living",
+          "roomName": "客厅",
+          "model": "zhimi.heater.za2",
+          "isOnline": true,
+          "kind": {
+            "kind": "climate",
+            "entityId": "miot:dev_run_heater_living:2",
+            "isOn": false,
+            "hvacMode": "off",
+            "availableModes": ["off", "heat"],
+            "targetTemperature": 21,
+            "currentTemperature": 20,
+            "minTemp": 18,
+            "maxTemp": 28,
+            "step": 1,
+            "fanMode": null,
+            "availableFanModes": [],
+            "swingMode": null,
+            "availableSwingModes": []
+          }
+        }
+      ],
+      "cases": [
+        {
+          "utterance": "打开电暖器",
+          "panelRoom": { "id": "study", "name": "书房" },
+          "expected": [
+            { "targetId": "dev_run_heater_study", "kind": "power", "value": true },
+            { "targetId": "dev_run_heater_study_desk", "kind": "power", "value": true }
+          ],
+          "expectedReply": "已打开书房电暖器、书房暖风机"
+        }
+      ]
     }
   ]
 }

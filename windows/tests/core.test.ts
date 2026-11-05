@@ -13,6 +13,7 @@ import {
   DelayPhrase,
   GROK_BALL_RADIAL_SLOTS,
   LocalIntentParser,
+  ManualControlPolicy,
   ModelActionPolicy,
   ModelIntentResolver,
   UndoPhrase,
@@ -2218,6 +2219,55 @@ it("matches the shared confirmation table in confirmation_golden.json", () => {
     assert.deepEqual(decision.intents, row.expectAutoRun ? [intent] : [], row.id);
     if (!row.expectAutoRun) assert.ok(decision.suggestions.length > 0, row.id);
   }
+});
+
+it("manual controls stay direct when they end a hazard (#143, #274)", () => {
+  const plug: SmartDevice = {
+    id: "dev_plug",
+    name: "书房插座",
+    roomId: "study",
+    roomName: "书房",
+    model: "cuco.plug.v3",
+    isOnline: true,
+    kind: {
+      kind: "plug",
+      switchEntityId: "switch.plug",
+      isOn: true,
+      powerWatts: null,
+      childLockEntityId: null,
+      isChildLocked: false,
+    },
+  };
+  const heater: SmartDevice = {
+    id: "dev_heater",
+    name: "书房电暖器",
+    roomId: "study",
+    roomName: "书房",
+    model: "zhimi.heater.za2",
+    isOnline: true,
+    kind: {
+      kind: "climate",
+      entityId: "climate.heater",
+      isOn: true,
+      hvacMode: "heat",
+      availableModes: ["off", "heat"],
+      targetTemperature: 20,
+      currentTemperature: null,
+      minTemp: 18,
+      maxTemp: 28,
+      step: 1,
+      fanMode: null,
+      availableFanModes: [],
+    },
+  };
+  const devices = [plug, heater];
+  const confirm = (device: SmartDevice, operation: DeviceIntent["operation"]): boolean =>
+    ManualControlPolicy.requiresConfirmation({ targetId: device.id, operation }, devices);
+
+  assert.equal(confirm(plug, { kind: "power", isOn: true }), true);
+  assert.equal(confirm(plug, { kind: "power", isOn: false }), false);
+  assert.equal(confirm(heater, { kind: "power", isOn: true }), true);
+  assert.equal(confirm(heater, { kind: "hvacMode", mode: "off" }), false);
 });
 
 describe("AI provider detection and key transport (#19)", () => {

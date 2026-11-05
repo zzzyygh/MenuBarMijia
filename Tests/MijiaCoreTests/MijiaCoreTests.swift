@@ -459,6 +459,8 @@ struct MijiaCoreTests {
         #expect(store.devices.first?.name == "餐边柜射灯")
         #expect(store.originalDeviceName(for: "dev_split_2") == "领普三键开关（中键）")
 
+        // The alias fixture is a wall switch, a hazard category for manual opens (#143).
+        store.manualControlConfirmationHandler = { _ in true }
         let plan = await store.runAssistantCommand("打开餐边柜射灯")
         #expect(plan?.intents.count == 1)
         #expect(store.devices.first?.isActiveOn == true)

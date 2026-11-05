@@ -7,6 +7,7 @@ import {
   IntentReply,
   IntentValidator,
   LocalIntentParser,
+  ManualControlPolicy,
   ModelIntentResolver,
   UndoPhrase,
   UserHabitMemory,
@@ -592,7 +593,7 @@ import type { MenuMijiaWindowsApp } from "./app.js";
         // Picking a bare-category open candidate is still a manual control on a high-risk device (#274).
         if (
           suggestion.id.startsWith("bare:on:") &&
-          intents.some((intent) => ModelActionPolicy.needsConfirmation(intent, aliasedDevices))
+          intents.some((intent) => ManualControlPolicy.requiresConfirmation(intent, aliasedDevices))
         ) {
           host.pendingSuggestions = ModelActionPolicy.chips(intents, null, "confirm:bare", aliasedDevices, host.scenes, true);
           host.replyBanner = {

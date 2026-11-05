@@ -1337,7 +1337,7 @@ describe("Bare category opens (#274)", () => {
     },
   });
 
-  const plug = (id: string, name: string, roomId: string, roomName: string): SmartDevice => ({
+  const plug = (id: string, name: string, roomId: string, roomName: string, isOn = false): SmartDevice => ({
     id,
     name,
     roomId,
@@ -1347,11 +1347,34 @@ describe("Bare category opens (#274)", () => {
     kind: {
       kind: "plug",
       switchEntityId: `switch.${id}`,
-      isOn: false,
+      isOn,
       powerWatts: null,
       energyKwh: null,
       childLockEntityId: null,
       isChildLocked: false,
+    },
+  });
+
+  const heater = (id: string, name: string, roomId: string, roomName: string): SmartDevice => ({
+    id,
+    name,
+    roomId,
+    roomName,
+    model: "zhimi.heater.za2",
+    isOnline: true,
+    kind: {
+      kind: "climate",
+      entityId: `climate.${id}`,
+      isOn: false,
+      hvacMode: "off",
+      availableModes: ["off", "heat"],
+      targetTemperature: 20,
+      currentTemperature: 18,
+      minTemp: 18,
+      maxTemp: 28,
+      step: 1,
+      fanMode: null,
+      availableFanModes: [],
     },
   });
 
@@ -1437,6 +1460,62 @@ describe("Bare category opens (#274)", () => {
     await setImmediate();
     assert.match(tile("plug.study"), /供电中/);
     assert.match(tile("plug.bedroom"), /已断电/);
+  });
+
+  it("a single auto-resolved off plug waits for confirmation", async () => {
+    await startWithDevices([
+      plug("plug.study", "书房插座", "study", "书房"),
+      plug("plug.living", "客厅插座", "living", "客厅", true),
+    ]);
+    await command("打开插座");
+    assert.match(document.body.textContent ?? "", /「打开书房插座」属于高风险设备，再点一次确认执行/);
+    assert.equal(
+      document.querySelector("[data-suggestion-id]")?.getAttribute("data-suggestion-id"),
+      "confirm:local",
+    );
+    assert.match(tile("plug.study"), /已断电/);
+    assert.match(tile("plug.living"), /供电中/);
+
+    element('[data-suggestion-id="confirm:local"]').click();
+    await setImmediate();
+    await setImmediate();
+    assert.match(tile("plug.study"), /供电中/);
+    assert.match(tile("plug.living"), /供电中/);
+  });
+
+  it("a panel room auto-resolving several heaters waits for confirmation", async () => {
+    const app = await startWithDevices([
+      heater("heat.study", "书房电暖器", "study", "书房"),
+      heater("heat.study_desk", "书房暖风机", "study", "书房"),
+      heater("heat.living", "客厅电暖器", "living", "客厅"),
+    ]);
+    await click('[data-room-id="study"]');
+    await command("打开电暖器");
+    assert.match(document.body.textContent ?? "", /「打开书房电暖器、书房暖风机」属于高风险设备，再点一次确认执行/);
+    assert.ok(document.querySelector('[data-suggestion-id="confirm:local"]'));
+    const running = () => app.devices.filter((device) => device.kind.kind === "climate" && device.kind.isOn);
+    assert.equal(running().length, 0);
+
+    element('[data-suggestion-id="confirm:local"]').click();
+    await setImmediate();
+    await setImmediate();
+    assert.deepEqual(
+      running().map((device) => device.id),
+      ["heat.study", "heat.study_desk"],
+    );
+    assert.match(document.body.textContent ?? "", /已打开书房电暖器、书房暖风机/);
+  });
+
+  it("does not schedule an unconfirmed high-risk open", async () => {
+    const app = await startWithDevices([
+      plug("plug.study", "书房插座", "study", "书房"),
+      plug("plug.living", "客厅插座", "living", "客厅", true),
+    ]);
+    await command("10分钟后打开插座");
+    assert.match(document.body.textContent ?? "", /高风险设备需要先确认，未设定定时/);
+    assert.doesNotMatch(document.body.textContent ?? "", /已设定 10 分钟后执行/);
+    assert.equal(app.scheduledCommands.length, 0);
+    assert.match(tile("plug.study"), /已断电/);
   });
 });
 

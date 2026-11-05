@@ -293,3 +293,21 @@ export const ModelActionPolicy = {
     return `${ranReply}；下面的建议要点一下才执行`;
   },
 };
+
+/** Manual controls that end a hazard instead of starting one (power off, heat off). */
+function deescalatesHazard(operation: IntentOperation): boolean {
+  if (operation.kind === "power") return !operation.isOn;
+  if (operation.kind === "hvacMode") return operation.mode === "off";
+  return false;
+}
+
+/**
+ * The manual-control hazard rule, mirroring MijiaCore.ManualControlPolicy. A person switching a
+ * device off is making the home safer, so it stays direct unlike the model hazard table (#143).
+ */
+export const ManualControlPolicy = {
+  requiresConfirmation(intent: DeviceIntent, devices: readonly SmartDevice[]): boolean {
+    if (deescalatesHazard(intent.operation)) return false;
+    return ModelActionPolicy.needsConfirmation(intent, devices);
+  },
+};

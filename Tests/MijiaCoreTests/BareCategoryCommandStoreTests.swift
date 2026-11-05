@@ -204,11 +204,31 @@ struct BareCategoryCommandStoreTests {
 
     // MARK: - Opening (#274)
 
-    static func plug(_ id: String, _ name: String, roomId: String, roomName: String) -> SmartDevice {
+    static func plug(
+        _ id: String,
+        _ name: String,
+        roomId: String,
+        roomName: String,
+        isOn: Bool = false
+    ) -> SmartDevice {
         SmartDevice(
             id: id, name: name, roomId: roomId, roomName: roomName,
             model: "cuco.plug.v3", isOnline: true,
-            kind: .plug(PlugSpec(switchEntityId: "switch.\(id)", isOn: false))
+            kind: .plug(PlugSpec(switchEntityId: "switch.\(id)", isOn: isOn))
+        )
+    }
+
+    static func heater(_ id: String, _ name: String, roomId: String, roomName: String) -> SmartDevice {
+        SmartDevice(
+            id: id, name: name, roomId: roomId, roomName: roomName,
+            model: "zhimi.heater.za2", isOnline: true,
+            kind: .climate(ClimateSpec(
+                entityId: "climate.\(id)",
+                isOn: false,
+                hvacMode: "off",
+                availableModes: ["off", "heat"],
+                targetTemperature: 20
+            ))
         )
     }
 
@@ -264,12 +284,96 @@ struct BareCategoryCommandStoreTests {
             Self.studyCeiling.off(), Self.studyDesk.off(), Self.bedroomLamp, Self.kitchenLight
         ])
         #expect(store.selectRoom("study"))
+        var prompts = 0
+        store.manualControlConfirmationHandler = { _ in
+            prompts += 1
+            return false
+        }
 
         let plan = try #require(await store.runAssistantCommand("开灯"))
         #expect(plan.intents.map(\.targetId) == ["dev_study_ceiling", "dev_study_desk"])
         #expect(await mock.executedCommands.count == 2)
+        #expect(prompts == 0, "低风险灯不应二次确认")
         #expect(store.devices.first { $0.id == "dev_kitchen_light" }?.isActiveOn == false)
         #expect(store.undoBanner?.restoreCommands.count == 2)
+    }
+
+    @Test("An auto-resolved off plug asks before it switches on")
+    func openSingleOffPlugAsksFirst() async throws {
+        let studyPlug = Self.plug("dev_plug_study", "书房插座", roomId: "study", roomName: "书房")
+        let livingPlug = Self.plug(
+            "dev_plug_living", "客厅插座", roomId: "living", roomName: "客厅", isOn: true
+        )
+        let (store, mock) = try await Self.makeStore([studyPlug, livingPlug], rooms: [])
+        var prompts: [ManualControlConfirmation] = []
+        store.manualControlConfirmationHandler = { prompt in
+            prompts.append(prompt)
+            return false
+        }
+
+        let cancelled = try #require(await store.runAssistantCommand("打开插座"))
+        #expect(cancelled.intents.isEmpty)
+        #expect(prompts.count == 1)
+        #expect(await mock.executedCommands.isEmpty)
+        #expect(store.devices.first { $0.id == "dev_plug_study" }?.isActiveOn == false)
+
+        store.manualControlConfirmationHandler = { prompt in
+            prompts.append(prompt)
+            return true
+        }
+        let approved = try #require(await store.runAssistantCommand("打开插座"))
+        #expect(approved.intents == [
+            DeviceIntent(targetId: "dev_plug_study", operation: .power(true))
+        ])
+        #expect(prompts.count == 2)
+        #expect(await mock.executedCommands == [
+            .setSwitch(entityId: "switch.dev_plug_study", isOn: true)
+        ])
+        #expect(store.devices.first { $0.id == "dev_plug_study" }?.isActiveOn == true)
+    }
+
+    @Test("A panel room auto-resolving several heaters asks for each one first")
+    func openPanelRoomHeatersAskFirst() async throws {
+        let (store, mock) = try await Self.makeStore([
+            Self.heater("dev_heat_study", "书房电暖器", roomId: "study", roomName: "书房"),
+            Self.heater("dev_heat_study_desk", "书房暖风机", roomId: "study", roomName: "书房"),
+            Self.heater("dev_heat_living", "客厅电暖器", roomId: "living", roomName: "客厅")
+        ], rooms: [
+            RoomArea(id: "study", name: "书房", sortOrder: 0),
+            RoomArea(id: "living", name: "客厅", sortOrder: 1)
+        ])
+        #expect(store.selectRoom("study"))
+        var prompts = 0
+        store.manualControlConfirmationHandler = { _ in
+            prompts += 1
+            return false
+        }
+
+        let plan = try #require(await store.runAssistantCommand("打开电暖器"))
+        #expect(plan.intents.isEmpty)
+        #expect(prompts == 2)
+        #expect(await mock.executedCommands.isEmpty)
+        #expect(store.devices.allSatisfy { $0.isActiveOn == false })
+    }
+
+    @Test("A delayed auto-resolved high-risk open asks now and sets no timer")
+    func delayedOpenPlugAsksNow() async throws {
+        let studyPlug = Self.plug("dev_plug_study", "书房插座", roomId: "study", roomName: "书房")
+        let livingPlug = Self.plug(
+            "dev_plug_living", "客厅插座", roomId: "living", roomName: "客厅", isOn: true
+        )
+        let (store, mock) = try await Self.makeStore([studyPlug, livingPlug], rooms: [])
+        var prompts = 0
+        store.manualControlConfirmationHandler = { _ in
+            prompts += 1
+            return false
+        }
+
+        let plan = try #require(await store.runAssistantCommand("10分钟后打开插座"))
+        #expect(plan.intents.isEmpty)
+        #expect(prompts == 1)
+        #expect(store.scheduledCommands.isEmpty)
+        #expect(await mock.executedCommands.isEmpty)
     }
 
     @Test("A high-risk open candidate still asks before it runs")

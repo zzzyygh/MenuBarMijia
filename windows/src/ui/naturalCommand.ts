@@ -6,6 +6,7 @@ import {
   IntentReply,
   IntentValidator,
   LocalIntentParser,
+  ManualControlPolicy,
   ModelActionPolicy,
   ModelIntentResolver,
   UndoPhrase,
@@ -102,6 +103,19 @@ export async function handleNaturalCommand(host: MenuMijiaWindowsApp, rawInput: 
           host.render();
           return;
         }
+        if (
+          resolved &&
+          resolved.intents.some((intent) => ManualControlPolicy.requiresConfirmation(intent, aliasedDevices))
+        ) {
+          // A timer never fires an unconfirmed high-risk action; ask the user to run it now.
+          host.pendingSuggestions = [];
+          host.replyBanner = {
+            text: t("高风险设备需要先确认，未设定定时"),
+            source: t("需要确认"),
+          };
+          host.render();
+          return;
+        }
         queue(resolved?.intents);
         return;
       }
@@ -187,6 +201,22 @@ export async function handleNaturalCommand(host: MenuMijiaWindowsApp, rawInput: 
 
       const sanitized = IntentValidator.sanitize(plan.intents, aliasedDevices, host.scenes);
       host.pendingSuggestions = [...plan.suggestions];
+      // A local plan has no confirmation step of its own, so a high-risk auto-resolved target waits
+      // for a tap before it runs (#274 review). Low-risk devices execute immediately.
+      const hazardous = sanitized.filter((intent) =>
+        ManualControlPolicy.requiresConfirmation(intent, aliasedDevices),
+      );
+      if (hazardous.length > 0) {
+        host.pendingSuggestions = ModelActionPolicy.chips(sanitized, null, "confirm:local", aliasedDevices, host.scenes, true);
+        host.replyBanner = {
+          text: t("「{action}」属于高风险设备，再点一次确认执行", {
+            action: IntentReply.describe(hazardous, aliasedDevices, host.scenes).replace(/^已/, ""),
+          }),
+          source: t("需要确认"),
+        };
+        host.render();
+        return;
+      }
       if (sanitized.length === 0 && plan.suggestions.length > 0) {
         host.replyBanner = { text: plan.reply || ModelActionPolicy.confirmationReply(null), source: t("需要确认") };
         return;
