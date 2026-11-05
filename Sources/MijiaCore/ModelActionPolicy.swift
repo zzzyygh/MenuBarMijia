@@ -168,8 +168,8 @@ public enum ModelActionPolicy {
         return confidence < policy.threshold
     }
 
-    /// A heater change other than off, any plug or camera power change, a vacuum start, or turning a
-    /// 热水器 on or hotter needs a tap even when the model is sure.
+    /// A heater change other than off, any plug or camera power change, a vacuum start, turning a
+    /// 热水器 on or hotter, or a hazardous cover movement needs a tap even when the model is sure.
     public static func needsConfirmation(_ intent: DeviceIntent, devices: [SmartDevice]) -> Bool {
         guard let device = devices.first(where: { $0.id == intent.targetId }) else { return false }
         guard let hazard = hazard(for: device) else { return false }
@@ -214,8 +214,15 @@ public enum ModelActionPolicy {
             return .anyPower
         case .vacuum:
             return .powerOn
-        case .window:
-            return .powerOn
+        case .cover:
+            guard case .cover(let spec) = device.kind else { return nil }
+            switch spec.subtype {
+            case .curtain: return nil
+            // The ticket fixes curtain and garage rules only. An airer moves like a window
+            // opener, so it keeps that open-only confirmation instead of the stricter garage rule.
+            case .windowOpener, .clothesAirer: return .powerOn
+            case .garageDoor: return .anyPower
+            }
         case .climate where device.name.contains("热水器"):
             guard case .climate(let spec) = device.kind else { return nil }
             return .powerOnOrHotter(setpoint: spec.targetTemperature)

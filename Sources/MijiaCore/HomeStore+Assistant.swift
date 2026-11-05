@@ -152,7 +152,7 @@ extension HomeStore {
         }
         let environmentSummary = envParts.joined(separator: "，")
 
-        let activeParts = devices.filter { $0.isOnline && $0.isActiveOn }.map { dev in
+        let activeParts = devices.filter(\.isActiveDevice).map { dev in
             "\(dev.name)(\(IntentCatalog.stateSummary(dev)))"
         }
         let activeSummary = activeParts.isEmpty ? "全屋设备均关闭" : activeParts.joined(separator: "、")

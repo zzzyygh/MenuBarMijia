@@ -491,6 +491,7 @@ public enum MiotSynthesizer {
         }()
         return .cover(CoverSpec(
             entityId: MiotAddress.make(did: r.did, siid: s.iid),
+            subtype: CoverSubtype(miotServiceShortName: s.shortName),
             positionPercent: position,
             positionWritable: s.property(named: "target-position")?.isWritable == true,
             openDescription: coverMotorDescription(in: items, word: .open),

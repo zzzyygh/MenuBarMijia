@@ -28,7 +28,9 @@ public enum ManualControlPolicy {
     }
 
     public static func requiresConfirmation(_ operation: IntentOperation, for device: SmartDevice) -> Bool {
-        guard !operation.deescalatesHazard else { return false }
+        // Closing a cover is not automatically de-escalating: a garage door closing is itself
+        // hazardous, so every cover operation goes through the subtype hazard table.
+        if operation.deescalatesHazard, !device.kind.isCover { return false }
         return ModelActionPolicy.needsConfirmation(
             DeviceIntent(targetId: device.id, operation: operation),
             devices: [device]

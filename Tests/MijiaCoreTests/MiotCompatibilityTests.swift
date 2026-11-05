@@ -118,6 +118,7 @@ struct MiotCompatibilityTests {
             return
         }
         #expect(cover.entityId == "miot:wd1:2")
+        #expect(cover.subtype == .windowOpener)
         #expect(cover.positionPercent == 42)
         #expect(cover.positionWritable)
         #expect(cover.openDescription == "Open")
@@ -216,6 +217,7 @@ struct MiotCompatibilityTests {
             model: "linp.wopener.wd1lb", isOnline: true,
             kind: .cover(CoverSpec(
                 entityId: "miot:wd1:2",
+                subtype: .windowOpener,
                 positionPercent: position,
                 positionWritable: true,
                 openDescription: "Open",

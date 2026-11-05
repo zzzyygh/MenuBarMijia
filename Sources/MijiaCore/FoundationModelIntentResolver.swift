@@ -125,7 +125,7 @@ public struct FoundationModelIntentResolver: AssistantCommandResolving {
 
         let catalog = IntentCatalog(devices: devices, scenes: scenes)
         var preferredDeviceIds = Set(context.favoriteDeviceIds)
-        preferredDeviceIds.formUnion(devices.filter { $0.isOnline && $0.isActiveOn }.map(\.id))
+        preferredDeviceIds.formUnion(devices.filter(\.isActiveDevice).map(\.id))
         let instructions = AssistantLocalPrompt.instructions(
             catalog: catalog,
             context: context,

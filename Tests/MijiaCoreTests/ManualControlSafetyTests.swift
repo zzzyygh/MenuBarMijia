@@ -47,7 +47,57 @@ struct ManualControlSafetyTests {
         ))
     )
 
+    static func cover(_ subtype: CoverSubtype, position: Int = 0) -> SmartDevice {
+        SmartDevice(
+            id: "cover-\(subtype.rawValue)", name: "测试开合设备", roomId: "bed", roomName: "卧室",
+            model: "linp.wopener.wd1lb", isOnline: true,
+            kind: .cover(CoverSpec(
+                entityId: "miot:wd1:2",
+                subtype: subtype,
+                positionPercent: position,
+                positionWritable: true,
+                openDescription: "Open",
+                closeDescription: "Close",
+                pauseDescription: "Pause"
+            ))
+        )
+    }
+
     // MARK: - Pure policy
+
+    @Test("Cover confirmation follows the subtype; an unknown subtype is a window opener")
+    func coverConfirmationTable() {
+        let rules: [(subtype: CoverSubtype, openConfirms: Bool, closeConfirms: Bool)] = [
+            (.curtain, false, false),
+            (.windowOpener, true, false),
+            (.garageDoor, true, true),
+            (.clothesAirer, true, false),
+        ]
+        for rule in rules {
+            let cover = Self.cover(rule.subtype)
+            let open = DeviceIntent(targetId: cover.id, operation: .power(true))
+            let close = DeviceIntent(targetId: cover.id, operation: .power(false))
+            #expect(
+                ManualControlPolicy.requiresConfirmation(.power(true), for: cover) == rule.openConfirms,
+                "\(rule.subtype) open"
+            )
+            #expect(
+                ManualControlPolicy.requiresConfirmation(.power(false), for: cover) == rule.closeConfirms,
+                "\(rule.subtype) close"
+            )
+            #expect(
+                ModelActionPolicy.needsConfirmation(open, devices: [cover]) == rule.openConfirms,
+                "\(rule.subtype) model open"
+            )
+            #expect(
+                ModelActionPolicy.needsConfirmation(close, devices: [cover]) == rule.closeConfirms,
+                "\(rule.subtype) model close"
+            )
+        }
+        #expect(CoverSubtype(miotServiceShortName: "window-opener") == .windowOpener)
+        #expect(CoverSubtype(miotServiceShortName: "unknown-service") == .windowOpener)
+        #expect(CoverSubtype(miotServiceShortName: nil) == .windowOpener)
+    }
 
     @Test("The manual policy reuses the AI hazard table and lets de-escalation through")
     func hazardPolicy() {

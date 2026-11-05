@@ -5,7 +5,7 @@ extension HomeStore {
     // MARK: - Computed Views of State
 
     public var activeDeviceCount: Int {
-        devices.filter(\.isActiveOn).count
+        devices.filter(\.isActiveDevice).count
     }
 
     public var onlineDeviceCount: Int {

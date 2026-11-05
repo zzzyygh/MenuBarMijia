@@ -81,9 +81,7 @@ extension HomeStore {
         let now = now ?? assistantNow()
         return GrokBallEmotionResolver.resolve(.init(
             timeBucket: UserHabitMemory.TimeBucket.from(date: now),
-            activeDeviceCount: devices.reduce(into: 0) { count, device in
-                if device.isOnline && device.isActiveOn { count += 1 }
-            },
+            activeDeviceCount: activeDeviceCount,
             speechListening: speechListening,
             assistantState: assistantState,
             isRecommending: isProactiveRecommending,

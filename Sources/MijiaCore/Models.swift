@@ -507,10 +507,31 @@ public struct SensorSpec: Equatable, Sendable {
     }
 }
 
-/// A window or similar cover. Position is 0 closed … 100 open. Motor words are the spec's own
-/// value-list descriptions, so a write never invents a numeric code the device did not publish.
+/// Risk class of a cover, per GLOSSARY `CoverDevice`. An unrecognized source is a window opener,
+/// the behaviour every cover had before subtypes.
+public enum CoverSubtype: String, Equatable, Sendable {
+    case curtain
+    case windowOpener = "window-opener"
+    case garageDoor = "garage-door"
+    case clothesAirer = "clothes-airer"
+
+    /// MIoT service short name → subtype. The service registry decides whether a service becomes
+    /// a cover card at all; this table decides its risk class. An unlisted service keeps the
+    /// fallback so a new cover never lands in a riskier class by omission.
+    private static let miotServiceSubtypes: [String: CoverSubtype] = [
+        "window-opener": .windowOpener,
+    ]
+
+    public init(miotServiceShortName: String?) {
+        self = Self.miotServiceSubtypes[miotServiceShortName ?? ""] ?? .windowOpener
+    }
+}
+
+/// A cover (GLOSSARY `CoverDevice`). Position is 0 closed … 100 open. Motor words are the spec's
+/// own value-list descriptions, so a write never invents a numeric code the device did not publish.
 public struct CoverSpec: Equatable, Sendable {
     public var entityId: String
+    public var subtype: CoverSubtype
     public var positionPercent: Int?
     public var positionWritable: Bool
     public var openDescription: String?
@@ -521,6 +542,7 @@ public struct CoverSpec: Equatable, Sendable {
 
     public init(
         entityId: String,
+        subtype: CoverSubtype,
         positionPercent: Int? = nil,
         positionWritable: Bool = false,
         openDescription: String? = nil,
@@ -530,6 +552,7 @@ public struct CoverSpec: Equatable, Sendable {
         faultText: String? = nil
     ) {
         self.entityId = entityId
+        self.subtype = subtype
         self.positionPercent = positionPercent
         self.positionWritable = positionWritable
         self.openDescription = openDescription
@@ -563,6 +586,11 @@ public enum DeviceKind: Equatable, Sendable {
         case .climate: return 2
         default: return 3
         }
+    }
+
+    public var isCover: Bool {
+        if case .cover = self { return true }
+        return false
     }
 
     public var canTogglePower: Bool {
@@ -700,6 +728,12 @@ public struct SmartDevice: Identifiable, Equatable, Sendable {
         case .fridge, .sensor: return false
         case .cover(let s): return (s.positionPercent ?? 0) > 0
         }
+    }
+
+    /// GLOSSARY `ActiveDevice`: a cover in the open position is open, not switched on, so it stays
+    /// out of the panel and menu-bar counts even though `isActiveOn` reports its position.
+    public var isActiveDevice: Bool {
+        isActiveOn && !kind.isCover
     }
 
     /// Power from a confirmed command, keeping brightness and other fields already on `self`.
