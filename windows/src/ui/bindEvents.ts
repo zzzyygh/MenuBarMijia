@@ -598,7 +598,7 @@ import type { MenuMijiaWindowsApp } from "./app.js";
         const item = host.missedScheduledCommands.find((c) => c.id === btn.dataset.runMissed);
         if (!item) return;
         host.missedScheduledCommands = host.missedScheduledCommands.filter((c) => c.id !== item.id);
-        void host.handleNaturalCommand(item.command, true);
+        void host.runScheduledCommand(item);
       });
     });
 

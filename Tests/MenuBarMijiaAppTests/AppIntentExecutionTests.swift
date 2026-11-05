@@ -124,6 +124,37 @@ struct AppIntentExecutionTests {
             #expect(succeededMessage == "Triggered Study PC")
         }
     }
+
+    @Test("Shortcuts answer an ambiguous 关灯 without sending any device command")
+    func ambiguousBareCategoryStaysHandsOff() async throws {
+        try await L10n.$overrideLanguage.withValue(.zhHans) {
+            let suite = "test.intent.bare.\(UUID().uuidString)"
+            defer { UserDefaults.standard.removePersistentDomain(forName: suite) }
+            let ceiling = SmartDevice(
+                id: "study_ceiling", name: "书房吸顶灯", roomId: "study", roomName: "书房",
+                model: "yeelink.light.ceiling20", isOnline: true,
+                kind: .light(LightSpec(entityId: "light.study_ceiling", isOn: true))
+            )
+            let desk = SmartDevice(
+                id: "study_desk", name: "书房台灯", roomId: "study", roomName: "书房",
+                model: "yeelink.light.lamp4", isOnline: true,
+                kind: .light(LightSpec(entityId: "light.study_desk", isOn: true))
+            )
+            let provider = ControlledIntentProvider()
+            let store = HomeStore(provider: provider, defaultsSuiteName: suite)
+            let intent = AskAssistantIntent()
+            intent.text = "关灯"
+            let invocation = Task { try await intent.execute(in: store) }
+            await Task.yield()
+            await provider.sendSnapshot(SynthesizedHome(devices: [ceiling, desk]))
+
+            let message = try await invocation.value
+            #expect(message == "开着：书房吸顶灯、书房台灯。请说出房间或设备名")
+            #expect(await provider.commandCount == 0)
+            #expect(store.scheduledCommands.isEmpty)
+            #expect(store.devices.allSatisfy(\.isActiveOn))
+        }
+    }
 }
 
 private actor ControlledIntentProvider: HomeProvider {

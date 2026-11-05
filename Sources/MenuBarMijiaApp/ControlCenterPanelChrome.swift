@@ -276,7 +276,7 @@ extension ControlCenterPanel {
         // One representative reading keeps the line quiet: the selected room's reading first,
         // then the user's preferred menu-bar temperature source (#103).
         let selectedRoomId = store.selectedRoomId
-        let selectedRoomName = store.rooms.first { $0.id == selectedRoomId }?.name
+        let selectedRoomName = store.panelRoomName
         let roomDeviceIds = selectedRoomId.map { roomId in
             Set(store.devices.filter { $0.roomId == roomId }.map(\.id))
         }

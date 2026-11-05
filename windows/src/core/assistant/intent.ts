@@ -1,4 +1,5 @@
 import type {
+  AssistantSuggestion,
   DeviceCommand,
   DeviceIntent,
   HomeScene,
@@ -499,6 +500,149 @@ function buildPlanFromCandidates(
   };
 }
 
+// MARK: - Bare Category Commands
+
+export interface LocalIntentParseOptions {
+  readonly panelRoomName?: string | null;
+  readonly usageOrder?: readonly string[];
+}
+
+export type BareCategoryResolution =
+  | { readonly kind: "none"; readonly room: string | null }
+  | { readonly kind: "run"; readonly devices: readonly SmartDevice[] }
+  | { readonly kind: "candidates"; readonly devices: readonly SmartDevice[] };
+
+const BARE_CATEGORY_NOUNS: Readonly<Record<IntentCategory, string>> = {
+  light: "灯",
+  climate: "空调",
+  heater: "电暖器",
+  fan: "风扇",
+  airPurifier: "空气净化器",
+  dehumidifier: "除湿机",
+  diffuser: "香氛机",
+  plug: "插座",
+  vacuum: "扫地机",
+  tv: "电视",
+  camera: "摄像机",
+  other: "设备",
+};
+
+export const BARE_CATEGORY_CANDIDATE_LIMIT = 4;
+
+/**
+ * GLOSSARY `BareCategoryCommand`: 「关灯」 looks only at the same-category devices that are on.
+ * One device runs directly; several use the room the panel shows, or wait for a candidate tap.
+ * Shared with the macOS `BareCategoryCommand` and pinned by `Tests/Fixtures/intent_golden.json`.
+ */
+export function resolveBareCategory(
+  active: readonly SmartDevice[],
+  panelRoomName: string | null,
+  usageOrder: readonly string[] = [],
+): BareCategoryResolution {
+  if (active.length === 0) return { kind: "none", room: null };
+  if (active.length === 1) return { kind: "run", devices: [...active] };
+  if (panelRoomName) {
+    const inRoom = active.filter((dev) => dev.roomName === panelRoomName);
+    return inRoom.length > 0
+      ? { kind: "run", devices: inRoom }
+      : { kind: "none", room: panelRoomName };
+  }
+  const rank = new Map(usageOrder.map((id, index) => [id, index]));
+  const ranked = active
+    .map((device, index) => ({ device, index }))
+    .sort((left, right) => {
+      const leftRank = rank.get(left.device.id) ?? Number.MAX_SAFE_INTEGER;
+      const rightRank = rank.get(right.device.id) ?? Number.MAX_SAFE_INTEGER;
+      return leftRank === rightRank ? left.index - right.index : leftRank - rightRank;
+    })
+    .map((entry) => entry.device);
+  return { kind: "candidates", devices: ranked };
+}
+
+type BareCategoryOutcome =
+  | { readonly plan: IntentPlan }
+  | { readonly targetIds: readonly string[] };
+
+function bareCategoryAnswer(category: IntentCategory, room: string | null): string {
+  const noun = BARE_CATEGORY_NOUNS[category] ?? "设备";
+  return room === null || room.length === 0 ? `${noun}都关着` : `${room}的${noun}都关着`;
+}
+
+function bareCategoryChoiceReply(devices: readonly SmartDevice[]): string {
+  return `开着：${devices.map((dev) => dev.name).join("、")}。请说出房间或设备名`;
+}
+
+function bareCategorySuggestions(
+  candidates: readonly SmartDevice[],
+  devices: readonly SmartDevice[],
+  scenes: readonly HomeScene[],
+): AssistantSuggestion[] {
+  const chips: AssistantSuggestion[] = candidates.slice(0, BARE_CATEGORY_CANDIDATE_LIMIT).map((dev) => {
+    const intent: DeviceIntent = { targetId: dev.id, operation: { kind: "power", isOn: false } };
+    return {
+      id: `bare:off:${dev.id}`,
+      title: IntentReply.describe([intent], devices, scenes).replace(/^已/, ""),
+      confidencePercent: null,
+      intents: [intent],
+    };
+  });
+  chips.push({
+    id: "bare:off:all",
+    title: "全部关掉",
+    confidencePercent: null,
+    intents: candidates.map((dev) => ({
+      targetId: dev.id,
+      operation: { kind: "power", isOn: false } as const,
+    })),
+  });
+  return chips;
+}
+
+function bareCategoryOutcome(
+  ops: readonly IntentOperation[],
+  wanted: ReadonlySet<IntentCategory> | null,
+  hasScope: boolean,
+  hasRoomWord: boolean,
+  devices: readonly SmartDevice[],
+  scenes: readonly HomeScene[],
+  options: LocalIntentParseOptions,
+): BareCategoryOutcome | null {
+  const onlyOff = ops.length === 1 && ops[0]?.kind === "power" && !ops[0].isOn;
+  if (!onlyOff || hasScope || hasRoomWord || wanted === null || wanted.size !== 1) return null;
+  const category = [...wanted][0]!;
+  const active = devices.filter((dev) => {
+    const deviceCat = deviceCategory(dev);
+    if (!dev.isOnline || !isAssistantControllable(deviceCat)) return false;
+    if (!deviceAcceptsControlWrites(dev) || !isDeviceActiveOn(dev)) return false;
+    if (!wanted.has(deviceCat)) return false;
+    const intent: DeviceIntent = { targetId: dev.id, operation: { kind: "power", isOn: false } };
+    return IntentValidator.commandsForIntent(intent, dev).length > 0;
+  });
+  const resolution = resolveBareCategory(active, options.panelRoomName ?? null, options.usageOrder ?? []);
+  switch (resolution.kind) {
+    case "none":
+      return {
+        plan: {
+          intents: [],
+          reply: bareCategoryAnswer(category, resolution.room),
+          source: "local",
+          suggestions: [],
+        },
+      };
+    case "candidates":
+      return {
+        plan: {
+          intents: [],
+          reply: bareCategoryChoiceReply(resolution.devices),
+          source: "local",
+          suggestions: bareCategorySuggestions(resolution.devices, devices, scenes),
+        },
+      };
+    case "run":
+      return { targetIds: resolution.devices.map((dev) => dev.id) };
+  }
+}
+
 const EN_ROOM_ALIASES: Readonly<Record<string, readonly string[]>> = {
   "master bedroom": ["主卧", "卧室", "master bedroom", "master"],
   "second bedroom": ["次卧", "小卧室", "second bedroom", "guest"],
@@ -616,13 +760,14 @@ export const LocalIntentParser = {
   parse(
     utterance: string,
     devices: readonly SmartDevice[],
-    scenes: readonly HomeScene[]
+    scenes: readonly HomeScene[],
+    options: LocalIntentParseOptions = {},
   ): IntentPlan | null {
     const clean = utterance.replace(/[，。！？、\s]/g, "");
     if (!clean) return null;
 
     if (!/[\u4e00-\u9fff]/.test(utterance) && /[a-zA-Z]/.test(utterance)) {
-      return this.parseEnglish(utterance, devices, scenes);
+      return this.parseEnglish(utterance, devices, scenes, options);
     }
 
     for (const scene of scenes) {
@@ -718,7 +863,7 @@ export const LocalIntentParser = {
     if (ops.length === 0) {
       if (hasOpen) ops = [{ kind: "power", isOn: true }];
       else if (hasClose) ops = [{ kind: "power", isOn: false }];
-      else if (/[a-zA-Z]/.test(utterance)) return this.parseEnglish(utterance, devices, scenes);
+      else if (/[a-zA-Z]/.test(utterance)) return this.parseEnglish(utterance, devices, scenes, options);
       else return null;
     }
 
@@ -738,6 +883,9 @@ export const LocalIntentParser = {
       const wanted = new Set<IntentCategory>();
       if (clean.includes("灯")) wanted.add("light");
       if (clean.includes("空调")) wanted.add("climate");
+      if (clean.includes("电暖器") || clean.includes("电暖气") || clean.includes("取暖器") || clean.includes("暖风机") || clean.includes("暖气")) {
+        wanted.add("heater");
+      }
       if (clean.includes("除湿机")) wanted.add("dehumidifier");
       if (clean.includes("香氛机")) wanted.add("diffuser");
       if (clean.includes("插座")) wanted.add("plug");
@@ -746,18 +894,35 @@ export const LocalIntentParser = {
       if (clean.includes("摄像") || clean.includes("监控")) wanted.add("camera");
       const effectiveWanted = wanted.size > 0 ? wanted : implied;
 
-      candidates = devices.filter((d) => {
-        const cat = deviceCategory(d);
-        if (!d.isOnline || !isAssistantControllable(cat) || !deviceAcceptsControlWrites(d)) return false;
-        if (onlyActive && !isDeviceActiveOn(d)) return false;
-        if (matchedRooms.length > 0 && !matchedRooms.includes(d.roomName)) return false;
-        if (effectiveWanted && !effectiveWanted.has(cat)) return false;
-        return effectiveWanted !== null || hasAllScope || matchedRooms.length > 0;
-      });
+      const bare = bareCategoryOutcome(
+        ops,
+        effectiveWanted,
+        hasAllScope,
+        matchedRooms.length > 0,
+        devices,
+        scenes,
+        options,
+      );
+      if (bare && "plan" in bare) return bare.plan;
+      if (bare) {
+        const byId = new Map(devices.map((d) => [d.id, d]));
+        candidates = bare.targetIds
+          .map((id) => byId.get(id))
+          .filter((d): d is SmartDevice => d !== undefined);
+      } else {
+        candidates = devices.filter((d) => {
+          const cat = deviceCategory(d);
+          if (!d.isOnline || !isAssistantControllable(cat) || !deviceAcceptsControlWrites(d)) return false;
+          if (onlyActive && !isDeviceActiveOn(d)) return false;
+          if (matchedRooms.length > 0 && !matchedRooms.includes(d.roomName)) return false;
+          if (effectiveWanted && !effectiveWanted.has(cat)) return false;
+          return effectiveWanted !== null || hasAllScope || matchedRooms.length > 0;
+        });
 
-      if (!onlyActive && !hasAllScope && matchedRooms.length === 0 && candidates.length !== 1) {
-        if (/[a-zA-Z]/.test(utterance)) return this.parseEnglish(utterance, devices, scenes);
-        return null;
+        if (!onlyActive && !hasAllScope && matchedRooms.length === 0 && candidates.length !== 1) {
+          if (/[a-zA-Z]/.test(utterance)) return this.parseEnglish(utterance, devices, scenes, options);
+          return null;
+        }
       }
     }
 
@@ -769,7 +934,7 @@ export const LocalIntentParser = {
       scenes
     );
     if (!plan && /[a-zA-Z]/.test(utterance)) {
-      return this.parseEnglish(utterance, devices, scenes);
+      return this.parseEnglish(utterance, devices, scenes, options);
     }
     return plan;
   },
@@ -777,7 +942,8 @@ export const LocalIntentParser = {
   parseEnglish(
     utterance: string,
     devices: readonly SmartDevice[],
-    scenes: readonly HomeScene[]
+    scenes: readonly HomeScene[],
+    options: LocalIntentParseOptions = {},
   ): IntentPlan | null {
     const lower = utterance
       .toLowerCase()
@@ -962,17 +1128,34 @@ export const LocalIntentParser = {
       if (wanted === null && !isTurningOff) return null;
       if (!hasScope && matchedRoomKeys.length === 0 && wanted === null) return null;
 
-      const onlyActive = ops.every(isRelativeOp);
-      candidates = devices.filter((dev) => {
-        const cat = deviceCategory(dev);
-        if (!dev.isOnline || !isAssistantControllable(cat) || !deviceAcceptsControlWrites(dev)) return false;
-        if (onlyActive && !isDeviceActiveOn(dev)) return false;
-        if (matchedRoomKeys.length > 0 && !roomDeviceIds.has(dev.id)) return false;
-        if (wanted && !wanted.has(cat)) return false;
-        return true;
-      });
-      if (!onlyActive && !hasScope && matchedRoomKeys.length === 0 && candidates.length !== 1) {
-        return null;
+      const bare = bareCategoryOutcome(
+        ops,
+        wanted,
+        hasScope,
+        matchedRoomKeys.length > 0,
+        devices,
+        scenes,
+        options,
+      );
+      if (bare && "plan" in bare) return bare.plan;
+      if (bare) {
+        const devById = new Map(devices.map((d) => [d.id, d]));
+        candidates = bare.targetIds
+          .map((id) => devById.get(id))
+          .filter((d): d is SmartDevice => d !== undefined);
+      } else {
+        const onlyActive = ops.every(isRelativeOp);
+        candidates = devices.filter((dev) => {
+          const cat = deviceCategory(dev);
+          if (!dev.isOnline || !isAssistantControllable(cat) || !deviceAcceptsControlWrites(dev)) return false;
+          if (onlyActive && !isDeviceActiveOn(dev)) return false;
+          if (matchedRoomKeys.length > 0 && !roomDeviceIds.has(dev.id)) return false;
+          if (wanted && !wanted.has(cat)) return false;
+          return true;
+        });
+        if (!onlyActive && !hasScope && matchedRoomKeys.length === 0 && candidates.length !== 1) {
+          return null;
+        }
       }
     }
 

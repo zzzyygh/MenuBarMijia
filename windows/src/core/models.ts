@@ -227,6 +227,8 @@ export interface ScheduledCommand {
   readonly delaySeconds: number;
   readonly fireTimestampMs: number;
   readonly reply: string;
+  /** Resolved when the timer was set, so 「10 分钟后关灯」 keeps the devices chosen then (#273). */
+  readonly intents?: readonly DeviceIntent[];
 }
 
 /** Plugs often power a router, fridge or NAS, and 全关 should not send a cleaning vacuum home (#23). */

@@ -102,7 +102,13 @@ public enum LocalIntentParser {
 
     // MARK: - Entry Point
 
-    public static func parse(_ utterance: String, devices: [SmartDevice], scenes: [HomeScene]) -> IntentPlan? {
+    public static func parse(
+        _ utterance: String,
+        devices: [SmartDevice],
+        scenes: [HomeScene],
+        panelRoomName: String? = nil,
+        usageOrder: [String] = []
+    ) -> IntentPlan? {
         let text = String(String.UnicodeScalarView(utterance.unicodeScalars.filter { !ignorable.contains($0) }))
             .trimmingCharacters(in: CharacterSet(charactersIn: "."))
         guard !text.isEmpty else { return nil }
@@ -111,7 +117,13 @@ public enum LocalIntentParser {
         if let scene = scenes.first(where: { strippedSceneText($0.name) == sceneCore }) {
             return scenePlan(scene)
         }
-        if let plan = parseDeviceCommand(text, devices: devices, scenes: scenes) {
+        if let plan = parseDeviceCommand(
+            text,
+            devices: devices,
+            scenes: scenes,
+            panelRoomName: panelRoomName,
+            usageOrder: usageOrder
+        ) {
             return plan
         }
         let containing = scenes.filter { sceneCore.count >= 2 && strippedSceneText($0.name).contains(sceneCore) }
@@ -119,7 +131,13 @@ public enum LocalIntentParser {
             return scenePlan(scene)
         }
         if utterance.unicodeScalars.contains(where: { $0.isASCII && CharacterSet.letters.contains($0) }) {
-            return parseEnglishCommand(utterance, devices: devices, scenes: scenes)
+            return parseEnglishCommand(
+                utterance,
+                devices: devices,
+                scenes: scenes,
+                panelRoomName: panelRoomName,
+                usageOrder: usageOrder
+            )
         }
         return nil
     }
@@ -147,7 +165,13 @@ public enum LocalIntentParser {
 
     // MARK: - Device Commands
 
-    private static func parseDeviceCommand(_ text: String, devices: [SmartDevice], scenes: [HomeScene]) -> IntentPlan? {
+    private static func parseDeviceCommand(
+        _ text: String,
+        devices: [SmartDevice],
+        scenes: [HomeScene],
+        panelRoomName: String?,
+        usageOrder: [String]
+    ) -> IntentPlan? {
         var rest = text
         var ops: [IntentOperation] = extractNumericOperations(&rest)
 
@@ -223,20 +247,36 @@ public enum LocalIntentParser {
             if wanted == nil && !isTurningOff { return nil }
             guard hasScope || !matchedRooms.isEmpty || wanted != nil else { return nil }
 
-            // "再暗一点" with no target means "the light that is on", never a dark one.
-            let onlyActive = ops.allSatisfy(\.isRelative)
-            let candidates = devices.filter { dev in
-                let category = IntentDeviceCategory(dev)
-                guard dev.isOnline, category.isAssistantControllable, dev.kind.acceptsControlWrites else { return false }
-                if onlyActive && !dev.isActiveOn { return false }
-                if !matchedRooms.isEmpty && !roomDeviceIds.contains(dev.id) { return false }
-                if let wanted, !wanted.contains(category) { return false }
-                return true
+            if let bare = bareCategoryOutcome(
+                ops: ops,
+                wanted: wanted,
+                hasScope: hasScope,
+                hasRoomWord: !matchedRooms.isEmpty,
+                devices: devices,
+                scenes: scenes,
+                panelRoomName: panelRoomName,
+                usageOrder: usageOrder
+            ) {
+                switch bare {
+                case .plan(let plan): return plan
+                case .targets(let ids): targetIds = ids
+                }
+            } else {
+                // "再暗一点" with no target means "the light that is on", never a dark one.
+                let onlyActive = ops.allSatisfy(\.isRelative)
+                let candidates = devices.filter { dev in
+                    let category = IntentDeviceCategory(dev)
+                    guard dev.isOnline, category.isAssistantControllable, dev.kind.acceptsControlWrites else { return false }
+                    if onlyActive && !dev.isActiveOn { return false }
+                    if !matchedRooms.isEmpty && !roomDeviceIds.contains(dev.id) { return false }
+                    if let wanted, !wanted.contains(category) { return false }
+                    return true
+                }
+                // A bare category ("打开空调") is only unambiguous when the home has exactly one such device;
+                // relative adjustments ("再暗一点") intentionally apply to all currently-on matching devices.
+                if !onlyActive && !hasScope && matchedRooms.isEmpty && candidates.count != 1 { return nil }
+                targetIds = candidates.map(\.id)
             }
-            // A bare category ("打开空调") is only unambiguous when the home has exactly one such device;
-            // relative adjustments ("再暗一点") intentionally apply to all currently-on matching devices.
-            if !onlyActive && !hasScope && matchedRooms.isEmpty && candidates.count != 1 { return nil }
-            targetIds = candidates.map(\.id)
         }
 
         let deviceById = Dictionary(devices.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
@@ -260,6 +300,58 @@ public enum LocalIntentParser {
     }
 
     // MARK: - Helpers
+
+    private enum BareCategoryOutcome {
+        case plan(IntentPlan)
+        case targets([String])
+    }
+
+    /// GLOSSARY `BareCategoryCommand`: a close command that names only a category. It looks at the
+    /// devices that are on right now, not every device of that category, so "关灯" never touches a
+    /// lamp that is already off. Nil means the command is not a bare-category close.
+    private static func bareCategoryOutcome(
+        ops: [IntentOperation],
+        wanted: Set<IntentDeviceCategory>?,
+        hasScope: Bool,
+        hasRoomWord: Bool,
+        devices: [SmartDevice],
+        scenes: [HomeScene],
+        panelRoomName: String?,
+        usageOrder: [String]
+    ) -> BareCategoryOutcome? {
+        guard ops == [.power(false)],
+              !hasScope,
+              !hasRoomWord,
+              let wanted,
+              wanted.count == 1,
+              let category = wanted.first else { return nil }
+        let active = devices.filter { dev in
+            let deviceCategory = IntentDeviceCategory(dev)
+            return dev.isOnline
+                && deviceCategory.isAssistantControllable
+                && dev.kind.acceptsControlWrites
+                && dev.isActiveDevice
+                && wanted.contains(deviceCategory)
+                && IntentValidator.normalize(.power(false), for: dev) != nil
+        }
+        switch BareCategoryCommand.resolve(active: active, panelRoomName: panelRoomName, usageOrder: usageOrder) {
+        case .none(let room):
+            return .plan(IntentPlan(
+                intents: [],
+                reply: BareCategoryCommand.answerReply(category: category, room: room),
+                source: .local
+            ))
+        case .candidates(let candidates):
+            return .plan(IntentPlan(
+                intents: [],
+                reply: BareCategoryCommand.choiceReply(candidates),
+                source: .local,
+                suggestions: BareCategoryCommand.suggestions(candidates: candidates, devices: devices, scenes: scenes)
+            ))
+        case .run(let targets):
+            return .targets(targets.map(\.id))
+        }
+    }
 
     private enum PhraseMatch {
         case full([String])
@@ -447,7 +539,9 @@ public enum LocalIntentParser {
     private static func parseEnglishCommand(
         _ utterance: String,
         devices: [SmartDevice],
-        scenes: [HomeScene]
+        scenes: [HomeScene],
+        panelRoomName: String?,
+        usageOrder: [String]
     ) -> IntentPlan? {
         let lower = utterance.lowercased()
             .replacingOccurrences(of: #"[,!?;:'"“”‘’。，！？、]+"#, with: " ", options: .regularExpression)
@@ -607,17 +701,33 @@ public enum LocalIntentParser {
             if wanted == nil && !isTurningOff { return nil }
             guard hasScope || !matchedRoomKeys.isEmpty || wanted != nil else { return nil }
 
-            let onlyActive = ops.allSatisfy(\.isRelative)
-            let candidates = devices.filter { dev in
-                let category = IntentDeviceCategory(dev)
-                guard dev.isOnline, category.isAssistantControllable, dev.kind.acceptsControlWrites else { return false }
-                if onlyActive && !dev.isActiveOn { return false }
-                if !matchedRoomKeys.isEmpty && !roomDeviceIds.contains(dev.id) { return false }
-                if let wanted, !wanted.contains(category) { return false }
-                return true
+            if let bare = bareCategoryOutcome(
+                ops: ops,
+                wanted: wanted,
+                hasScope: hasScope,
+                hasRoomWord: !matchedRoomKeys.isEmpty,
+                devices: devices,
+                scenes: scenes,
+                panelRoomName: panelRoomName,
+                usageOrder: usageOrder
+            ) {
+                switch bare {
+                case .plan(let plan): return plan
+                case .targets(let ids): targetIds = ids
+                }
+            } else {
+                let onlyActive = ops.allSatisfy(\.isRelative)
+                let candidates = devices.filter { dev in
+                    let category = IntentDeviceCategory(dev)
+                    guard dev.isOnline, category.isAssistantControllable, dev.kind.acceptsControlWrites else { return false }
+                    if onlyActive && !dev.isActiveOn { return false }
+                    if !matchedRoomKeys.isEmpty && !roomDeviceIds.contains(dev.id) { return false }
+                    if let wanted, !wanted.contains(category) { return false }
+                    return true
+                }
+                if !onlyActive && !hasScope && matchedRoomKeys.isEmpty && candidates.count != 1 { return nil }
+                targetIds = candidates.map(\.id)
             }
-            if !onlyActive && !hasScope && matchedRoomKeys.isEmpty && candidates.count != 1 { return nil }
-            targetIds = candidates.map(\.id)
         }
 
         let deviceById = Dictionary(devices.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })

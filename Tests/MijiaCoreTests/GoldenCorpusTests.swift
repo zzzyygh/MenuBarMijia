@@ -321,9 +321,18 @@ struct GoldenCorpusTests {
         let value: ExpectedValue
     }
 
+    private struct CandidateCase: Decodable {
+        let title: String
+        let expected: [ExpectedIntent]
+    }
+
     private struct IntentCase: Decodable {
         let utterance: String
         let expected: [ExpectedIntent]?
+        let panelRoomName: String?
+        let usageOrder: [String]?
+        let expectedReply: String?
+        let candidates: [CandidateCase]?
     }
 
     private struct CommandValidationCase: Decodable {
@@ -630,12 +639,28 @@ struct GoldenCorpusTests {
         let devices = corpus.devices.map { $0.toSmartDevice() }
 
         for item in corpus.intentCases {
-            if let expected = item.expected {
-                let plan = try #require(LocalIntentParser.parse(item.utterance, devices: devices, scenes: []), "\(item.utterance)")
-                let actual = plan.intents.map(Self.encodeIntent)
-                #expect(actual == expected, "\(item.utterance)")
-            } else {
-                #expect(LocalIntentParser.parse(item.utterance, devices: devices, scenes: []) == nil, "\(item.utterance)")
+            let plan = LocalIntentParser.parse(
+                item.utterance,
+                devices: devices,
+                scenes: [],
+                panelRoomName: item.panelRoomName,
+                usageOrder: item.usageOrder ?? []
+            )
+            guard let expected = item.expected else {
+                #expect(plan == nil, "\(item.utterance)")
+                continue
+            }
+            let resolved = try #require(plan, "\(item.utterance)")
+            #expect(resolved.intents.map(Self.encodeIntent) == expected, "\(item.utterance)")
+            if let reply = item.expectedReply {
+                #expect(resolved.reply == reply, "\(item.utterance)")
+            }
+            if let candidates = item.candidates {
+                #expect(resolved.suggestions.map(\.title) == candidates.map(\.title), "\(item.utterance)")
+                #expect(
+                    resolved.suggestions.map { $0.intents.map(Self.encodeIntent) } == candidates.map(\.expected),
+                    "\(item.utterance)"
+                )
             }
         }
 

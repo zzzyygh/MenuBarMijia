@@ -144,7 +144,7 @@ import { renderContextMenu, renderHomeMenu, renderOnboardingModal, renderPrompt,
 import { bindEvents as bindEventsImpl } from "./bindEvents.js";
 import { renderPanel } from "./panelView.js";
 import { applyGlobalHotkey, applyInterfaceLanguage, applyTemperatureSetting, bindGlobalKeys, checkForAppUpdate, hydrateCredentials, initializeCredentials, openSettingsSheet, openUpdatePage, osLanguages, persistCredentials, restoreUpdateState, saveSettings, saveUpdateState, startTimerLoop, startUpdateInstall, submitServiceEndpoints } from "./appLifecycle.js";
-import { handleNaturalCommand, learnShortcut } from "./naturalCommand.js";
+import { handleNaturalCommand, learnShortcut, runScheduledCommand } from "./naturalCommand.js";
 import { currentProactiveSuggestions, invalidateSourceControl, isIntentReversibleOnDevice, maybeRefreshProactiveInBackground, proactiveSignature, renderGrokBallSidebar, renderGrokBallStage, setGrokBallStageExpanded, syncGrokBallEmotion } from "./proactive.js";
 import { applyCommand, dispatchCloudCommand, markCloudValuesFresh, markCloudValuesStale } from "./commandDispatch.js";
 import { cloudPanelStructureFingerprint, cloudPresentationFingerprint, cloudSnapshotIsStale, filterBySelectedHome, foldGrouped, patchCloudPresentation, refreshDevices, refreshHADevices, withSharedHomeDevices } from "./cloudRefresh.js";
@@ -634,6 +634,10 @@ export class MenuMijiaWindowsApp {
 
   public async handleNaturalCommand(rawInput: string, fromScheduled = false): Promise<void> {
     return handleNaturalCommand(this, rawInput, fromScheduled);
+  }
+
+  public async runScheduledCommand(item: ScheduledCommand): Promise<void> {
+    return runScheduledCommand(this, item);
   }
 
   private learnShortcut(

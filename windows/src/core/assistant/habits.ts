@@ -445,6 +445,32 @@ export class UserHabitMemory {
     }
   }
 
+  /**
+   * Devices the user controls most often in this time bucket, most used first. Bare-category
+   * candidate chips follow it so the likely target is the first tap (#273).
+   */
+  usageOrder(now: Date = new Date()): string[] {
+    const bucket = timeBucketLabel(now.getHours());
+    const todayDayType = habitDayType(now);
+    const nowMs = now.getTime();
+    const scoreById = new Map<string, number>();
+    for (const entry of this.entries) {
+      if (entry.bucket !== bucket) continue;
+      if (entry.dayType !== undefined && entry.dayType !== todayDayType) continue;
+      const decay =
+        entry.lastRecordedAtMs === undefined
+          ? 1
+          : Math.pow(0.5, Math.max(0, nowMs - entry.lastRecordedAtMs) / 86_400_000 / HABIT_DECAY_HALF_LIFE_DAYS);
+      scoreById.set(entry.targetId, (scoreById.get(entry.targetId) ?? 0) + entry.count * decay);
+    }
+    return [...scoreById.entries()]
+      .sort(([leftId, leftScore], [rightId, rightScore]) => {
+        if (leftScore !== rightScore) return rightScore - leftScore;
+        return leftId < rightId ? -1 : leftId > rightId ? 1 : 0;
+      })
+      .map(([id]) => id);
+  }
+
   topSuggestions(options: {
     now?: Date;
     devices: readonly SmartDevice[];

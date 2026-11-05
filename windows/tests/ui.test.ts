@@ -1038,6 +1038,83 @@ describe("Timers the PC slept through (#22)", () => {
       Date.now = realNow;
     }
   });
+
+  it("resolves a bare 关灯 against the room shown when the timer was set", async () => {
+    startDemo();
+    await click('[data-room="客厅"]');
+    await command("10分钟后关灯");
+    assert.match(document.body.textContent ?? "", /已设定 10 分钟后执行「关灯」/);
+    assert.match(tile("light.living_ceiling"), /已开启/);
+    await click('[data-room="全部"]');
+    const realNow = Date.now;
+    Date.now = () => realNow() + 3 * 3600 * 1000;
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 1_200));
+      assert.match(document.body.textContent ?? "", /已错过定时：关灯/);
+      await click("[data-run-missed]");
+      await setImmediate();
+      assert.match(tile("light.living_ceiling"), /已关闭/);
+      assert.match(tile("light.study_desk"), /已开启/);
+    } finally {
+      Date.now = realNow;
+    }
+  });
+});
+
+describe("Bare category commands (#273)", () => {
+  it("关灯 with several lights on offers the lit lights and one 全部关掉", async () => {
+    startDemo();
+    await command("关灯");
+    assert.match(document.body.textContent ?? "", /开着：客厅吸顶灯、书房台灯。请说出房间或设备名/);
+    assert.match(tile("light.living_ceiling"), /已开启/);
+    assert.match(tile("light.study_desk"), /已开启/);
+    const chips = Array.from(
+      document.querySelectorAll<HTMLElement>("[data-suggestion-id]"),
+      (node) => node.textContent ?? "",
+    );
+    assert.deepEqual(chips, ["关闭客厅吸顶灯", "关闭书房台灯", "全部关掉"]);
+
+    element('[data-suggestion-id="bare:off:all"]').click();
+    await setImmediate();
+    await setImmediate();
+    assert.match(tile("light.living_ceiling"), /已关闭/);
+    assert.match(tile("light.study_desk"), /已关闭/);
+    assert.ok(document.querySelector("#btn-undo"), "全部关掉 should offer an undo banner");
+
+    await click("#btn-undo");
+    assert.match(tile("light.living_ceiling"), /已开启/);
+    assert.match(tile("light.study_desk"), /已开启/);
+  });
+
+  it("关灯 closes only the room the panel shows", async () => {
+    startDemo();
+    await click('[data-room="客厅"]');
+    await command("关灯");
+    assert.match(tile("light.living_ceiling"), /已关闭/);
+    assert.equal(document.querySelector("[data-suggestion-id]"), null);
+    await click('[data-room="全部"]');
+    assert.match(tile("light.study_desk"), /已开启/);
+  });
+
+  it("关灯 with every light off answers without sending a command", async () => {
+    startDemo();
+    await command("关掉所有灯");
+    assert.match(tile("light.living_ceiling"), /已关闭/);
+    assert.match(tile("light.study_desk"), /已关闭/);
+
+    await command("关灯");
+    assert.match(document.body.textContent ?? "", /灯都关着/);
+    assert.equal(document.querySelector("[data-suggestion-id]"), null);
+    assert.match(tile("light.living_ceiling"), /已关闭/);
+    assert.match(tile("light.study_desk"), /已关闭/);
+  });
+
+  it("关监控 closes the only camera that is on and leaves the rest alone", async () => {
+    startDemo();
+    await command("关监控");
+    assert.match(tile("camera.living_cam"), /休眠中/);
+    assert.match(tile("light.living_ceiling"), /已开启/);
+  });
 });
 
 describe("全关 (#23)", () => {

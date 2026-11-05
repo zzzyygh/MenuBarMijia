@@ -135,6 +135,30 @@
         "childLockEntityId": null,
         "isChildLocked": false
       }
+    },
+    {
+      "id": "dev_heater",
+      "name": "玄关暖风机",
+      "roomId": "entry",
+      "roomName": "玄关",
+      "model": "zhimi.heater.za2",
+      "isOnline": true,
+      "kind": {
+        "kind": "climate",
+        "entityId": "miot:dev_heater:2",
+        "isOn": false,
+        "hvacMode": "off",
+        "availableModes": ["off", "heat"],
+        "targetTemperature": 20,
+        "currentTemperature": null,
+        "minTemp": 18,
+        "maxTemp": 28,
+        "step": 1,
+        "fanMode": null,
+        "availableFanModes": [],
+        "swingMode": null,
+        "availableSwingModes": []
+      }
     }
   ],
   "intentCases": [
@@ -333,6 +357,121 @@
         { "targetId": "dev_ceiling", "kind": "power", "value": false },
         { "targetId": "dev_desk", "kind": "power", "value": false },
         { "targetId": "dev_purifier", "kind": "power", "value": false }
+      ]
+    },
+    {
+      "utterance": "关电暖器",
+      "expected": [],
+      "expectedReply": "电暖器都关着"
+    },
+    {
+      "utterance": "关监控",
+      "expected": [
+        { "targetId": "dev_camera", "kind": "power", "value": false }
+      ],
+      "expectedReply": "已关闭客厅摄像机"
+    },
+    {
+      "utterance": "关灯",
+      "expected": [],
+      "expectedReply": "开着：书房吸顶灯、书房台灯。请说出房间或设备名",
+      "candidates": [
+        {
+          "title": "关闭书房吸顶灯",
+          "expected": [{ "targetId": "dev_ceiling", "kind": "power", "value": false }]
+        },
+        {
+          "title": "关闭书房台灯",
+          "expected": [{ "targetId": "dev_desk", "kind": "power", "value": false }]
+        },
+        {
+          "title": "全部关掉",
+          "expected": [
+            { "targetId": "dev_ceiling", "kind": "power", "value": false },
+            { "targetId": "dev_desk", "kind": "power", "value": false }
+          ]
+        }
+      ]
+    },
+    {
+      "utterance": "关灯",
+      "usageOrder": ["dev_desk", "dev_ceiling"],
+      "expected": [],
+      "candidates": [
+        {
+          "title": "关闭书房台灯",
+          "expected": [{ "targetId": "dev_desk", "kind": "power", "value": false }]
+        },
+        {
+          "title": "关闭书房吸顶灯",
+          "expected": [{ "targetId": "dev_ceiling", "kind": "power", "value": false }]
+        },
+        {
+          "title": "全部关掉",
+          "expected": [
+            { "targetId": "dev_desk", "kind": "power", "value": false },
+            { "targetId": "dev_ceiling", "kind": "power", "value": false }
+          ]
+        }
+      ]
+    },
+    {
+      "utterance": "关灯",
+      "panelRoomName": "书房",
+      "expected": [
+        { "targetId": "dev_ceiling", "kind": "power", "value": false },
+        { "targetId": "dev_desk", "kind": "power", "value": false }
+      ],
+      "expectedReply": "已关闭书房吸顶灯、书房台灯"
+    },
+    {
+      "utterance": "关灯",
+      "panelRoomName": "客厅",
+      "expected": [],
+      "expectedReply": "客厅的灯都关着"
+    },
+    {
+      "utterance": "关空调",
+      "expected": [
+        { "targetId": "dev_ac", "kind": "power", "value": false }
+      ],
+      "expectedReply": "已关闭客厅空调"
+    },
+    {
+      "utterance": "关掉所有灯",
+      "expected": [
+        { "targetId": "dev_ceiling", "kind": "power", "value": false },
+        { "targetId": "dev_desk", "kind": "power", "value": false }
+      ]
+    },
+    {
+      "utterance": "turn off the lights",
+      "expected": [],
+      "expectedReply": "开着：书房吸顶灯、书房台灯。请说出房间或设备名",
+      "candidates": [
+        {
+          "title": "关闭书房吸顶灯",
+          "expected": [{ "targetId": "dev_ceiling", "kind": "power", "value": false }]
+        },
+        {
+          "title": "关闭书房台灯",
+          "expected": [{ "targetId": "dev_desk", "kind": "power", "value": false }]
+        },
+        {
+          "title": "全部关掉",
+          "expected": [
+            { "targetId": "dev_ceiling", "kind": "power", "value": false },
+            { "targetId": "dev_desk", "kind": "power", "value": false }
+          ]
+        }
+      ]
+    },
+    {
+      "utterance": "turn off the lights",
+      "panelRoomName": "书房",
+      "expected": [
+        { "targetId": "dev_ceiling", "kind": "power", "value": false },
+        { "targetId": "dev_desk", "kind": "power", "value": false }
       ]
     }
   ],

@@ -588,6 +588,21 @@ public struct UserHabitMemory: Codable, Equatable, Sendable {
         }
     }
 
+    /// Devices the user controls most often in this time bucket, most used first. Bare-category
+    /// candidate chips follow it so the likely target is the first tap (#273).
+    public func usageOrder(for now: Date = Date()) -> [String] {
+        let bucket = TimeBucket.from(date: now)
+        let todayDayType = DayType.from(date: now)
+        var scoreById: [String: Double] = [:]
+        for entry in entries where entry.bucket == bucket {
+            guard entry.dayType == nil || entry.dayType == todayDayType else { continue }
+            scoreById[entry.targetId, default: 0] += Self.score(of: entry, now: now, sequenceBonus: 0)
+        }
+        return scoreById
+            .sorted { $0.value == $1.value ? $0.key < $1.key : $0.value > $1.value }
+            .map(\.key)
+    }
+
     /// Zero-delay proactive engine (#113): learned habits first, then deterministic padding —
     /// starred-favorite toggles, environment-driven climate trim, the 全屋关灯 builtin, and
     /// running-device power-off — so the panel always has up to `limit` actionable suggestions.

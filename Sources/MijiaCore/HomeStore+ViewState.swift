@@ -78,6 +78,12 @@ extension HomeStore {
         return nil
     }
 
+    /// The room whose devices the panel is showing, if any. Bare-category commands target it (#273).
+    public var panelRoomName: String? {
+        guard let id = selectedRoomId else { return nil }
+        return rooms.first { $0.id == id }?.name
+    }
+
     @discardableResult
     public func selectRoom(_ roomId: String?) -> Bool {
         let next: DeviceListCut = roomId.map(DeviceListCut.room) ?? .all

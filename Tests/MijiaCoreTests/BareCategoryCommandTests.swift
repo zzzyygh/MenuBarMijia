@@ -1,0 +1,190 @@
+import Foundation
+import Testing
+@testable import MijiaCore
+
+/// GLOSSARY `BareCategoryCommand`: 「关灯」 looks only at the same-category devices that are on.
+struct BareCategoryCommandTests {
+    static func light(_ id: String, _ name: String, room: String, isOn: Bool) -> SmartDevice {
+        SmartDevice(
+            id: id, name: name, roomId: room, roomName: room,
+            model: "yeelink.light.lamp4", isOnline: true,
+            kind: .light(LightSpec(entityId: "light.\(id)", isOn: isOn))
+        )
+    }
+
+    static func climate(_ id: String, _ name: String, room: String, isOn: Bool) -> SmartDevice {
+        SmartDevice(
+            id: id, name: name, roomId: room, roomName: room,
+            model: "xiaomi.aircondition.mt0", isOnline: true,
+            kind: .climate(ClimateSpec(
+                entityId: "climate.\(id)",
+                isOn: isOn,
+                hvacMode: isOn ? "cool" : "off",
+                availableModes: ["off", "cool", "heat"],
+                targetTemperature: 24
+            ))
+        )
+    }
+
+    static let studyCeiling = light("dev_study_ceiling", "书房吸顶灯", room: "书房", isOn: true)
+    static let studyDesk = light("dev_study_desk", "书房台灯", room: "书房", isOn: true)
+    static let bedroomLamp = light("dev_bedroom_lamp", "主卧床头灯", room: "主卧", isOn: true)
+    static let kitchenLight = light("dev_kitchen_light", "厨房灯", room: "厨房", isOn: false)
+    static let livingAC = climate("dev_living_ac", "客厅中央空调", room: "客厅", isOn: true)
+    static let bedroomAC = climate("dev_bedroom_ac", "主卧挂机空调", room: "主卧", isOn: false)
+    static let livingFan = SmartDevice(
+        id: "dev_living_fan", name: "客厅循环扇", roomId: "客厅", roomName: "客厅",
+        model: "dmaker.fan.p5", isOnline: true,
+        kind: .fan(FanSpec(
+            entityId: "fan.living", isOn: true, presetMode: "Level1",
+            availablePresetModes: ["Level1", "Level2", "Level3"], isOscillating: false
+        ))
+    )
+    static let purifier = SmartDevice(
+        id: "dev_living_purifier", name: "客厅空净机", roomId: "客厅", roomName: "客厅",
+        model: "zhimi.airp.rma3", isOnline: true,
+        kind: .fan(FanSpec(entityId: "fan.purifier", isOn: true, availablePresetModes: ["Auto"]))
+    )
+
+    static let devices = [
+        studyCeiling, studyDesk, bedroomLamp, kitchenLight,
+        livingAC, bedroomAC, livingFan, purifier
+    ]
+
+    static func parse(_ text: String, panelRoomName: String? = nil, usageOrder: [String] = []) -> IntentPlan? {
+        LocalIntentParser.parse(
+            text,
+            devices: devices,
+            scenes: [],
+            panelRoomName: panelRoomName,
+            usageOrder: usageOrder
+        )
+    }
+
+    @Test("关灯 with several lights on offers the on lights plus one 全部关掉")
+    func severalLightsOnOffersCandidates() throws {
+        let plan = try #require(Self.parse("关灯"))
+        #expect(plan.source == .local)
+        #expect(plan.intents.isEmpty)
+        #expect(plan.reply == "开着：书房吸顶灯、书房台灯、主卧床头灯。请说出房间或设备名")
+        #expect(plan.suggestions.map(\.title) == [
+            "关闭书房吸顶灯",
+            "关闭书房台灯",
+            "关闭主卧床头灯",
+            "全部关掉"
+        ])
+        #expect(plan.suggestions.last?.intents == [
+            DeviceIntent(targetId: "dev_study_ceiling", operation: .power(false)),
+            DeviceIntent(targetId: "dev_study_desk", operation: .power(false)),
+            DeviceIntent(targetId: "dev_bedroom_lamp", operation: .power(false))
+        ])
+    }
+
+    @Test("关灯 with only one light on closes that light instead of the dark ones")
+    func oneLightOnRunsDirectly() throws {
+        let onlyBedroomOn = LocalIntentParser.parse(
+            "关灯",
+            devices: [Self.studyCeiling.off(), Self.studyDesk.off(), Self.bedroomLamp, Self.kitchenLight],
+            scenes: []
+        )
+        let resolved = try #require(onlyBedroomOn)
+        #expect(resolved.intents == [DeviceIntent(targetId: "dev_bedroom_lamp", operation: .power(false))])
+        #expect(resolved.reply == "已关闭主卧床头灯")
+    }
+
+    @Test("关灯 with every light off answers instead of sending a command")
+    func nothingOnAnswers() throws {
+        let allOff = [Self.studyCeiling.off(), Self.studyDesk.off(), Self.bedroomLamp.off(), Self.kitchenLight]
+        let plan = try #require(LocalIntentParser.parse("关灯", devices: allOff, scenes: []))
+        #expect(plan.intents.isEmpty)
+        #expect(plan.suggestions.isEmpty)
+        #expect(plan.reply == "灯都关着")
+    }
+
+    @Test("关灯 follows the room the panel shows, and says so when that room is dark")
+    func panelRoomDecides() throws {
+        let study = try #require(Self.parse("关灯", panelRoomName: "书房"))
+        #expect(study.intents == [
+            DeviceIntent(targetId: "dev_study_ceiling", operation: .power(false)),
+            DeviceIntent(targetId: "dev_study_desk", operation: .power(false))
+        ])
+        #expect(study.suggestions.isEmpty)
+
+        let kitchen = try #require(Self.parse("关灯", panelRoomName: "厨房"))
+        #expect(kitchen.intents.isEmpty)
+        #expect(kitchen.suggestions.isEmpty)
+        #expect(kitchen.reply == "厨房的灯都关着")
+    }
+
+    @Test("Candidates cap at four devices and one 全部关掉 closes all of them")
+    func candidatesCapAtFour() throws {
+        let extras = (1...3).map { index in
+            Self.light("dev_extra_\(index)", "额外灯\(index)", room: "房间\(index)", isOn: true)
+        }
+        let manyOn = [Self.studyCeiling, Self.studyDesk, Self.bedroomLamp] + extras
+        let plan = try #require(LocalIntentParser.parse("关灯", devices: manyOn, scenes: []))
+        #expect(plan.suggestions.count == 5)
+        #expect(plan.suggestions.dropLast().allSatisfy { $0.intents.count == 1 })
+        #expect(plan.suggestions.last?.intents.count == 6)
+    }
+
+    @Test("Candidate order follows the habit order, and device order otherwise")
+    func candidatesFollowHabitOrder() throws {
+        let plan = try #require(Self.parse("关灯", usageOrder: ["dev_bedroom_lamp", "dev_study_desk"]))
+        #expect(plan.suggestions.map(\.title) == [
+            "关闭主卧床头灯",
+            "关闭书房台灯",
+            "关闭书房吸顶灯",
+            "全部关掉"
+        ])
+    }
+
+    @Test("关空调 and 关风扇 follow the same rule for their own category")
+    func otherCategoriesFollowTheSameRule() throws {
+        let ac = try #require(Self.parse("关空调"))
+        #expect(ac.intents == [DeviceIntent(targetId: "dev_living_ac", operation: .power(false))])
+
+        let fan = try #require(Self.parse("关风扇"))
+        #expect(fan.intents == [DeviceIntent(targetId: "dev_living_fan", operation: .power(false))])
+
+        let purifier = try #require(Self.parse("关空气净化器"))
+        #expect(purifier.intents == [DeviceIntent(targetId: "dev_living_purifier", operation: .power(false))])
+    }
+
+    @Test("English bare-category closes use the same room rule")
+    func englishUsesTheSameRule() throws {
+        let plan = try #require(Self.parse("turn off the lights"))
+        #expect(plan.intents.isEmpty)
+        #expect(plan.suggestions.count == 4)
+
+        let study = try #require(Self.parse("turn off the lights", panelRoomName: "书房"))
+        #expect(study.intents.map(\.targetId) == ["dev_study_ceiling", "dev_study_desk"])
+    }
+
+    @Test("Scope words and turning on keep their existing behavior")
+    func scopeAndPowerOnUnchanged() throws {
+        let scoped = try #require(Self.parse("关掉所有的灯"))
+        #expect(scoped.intents.map(\.targetId) == [
+            "dev_study_ceiling",
+            "dev_study_desk",
+            "dev_bedroom_lamp",
+            "dev_kitchen_light"
+        ])
+
+        let every = try #require(Self.parse("全部关灯"))
+        #expect(every.intents.count == 4)
+
+        #expect(Self.parse("打开灯") == nil)
+    }
+}
+
+private extension SmartDevice {
+    func off() -> SmartDevice {
+        var copy = self
+        if case .light(var spec) = copy.kind {
+            spec.isOn = false
+            copy.kind = .light(spec)
+        }
+        return copy
+    }
+}

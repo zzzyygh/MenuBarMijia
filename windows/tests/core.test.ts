@@ -1461,6 +1461,13 @@ describe("LocalIntentParser, DelayPhrase, UndoPhrase, and ModelIntentResolver", 
       intentCases: Array<{
         utterance: string;
         expected: Array<{ targetId: string; kind: string; value: boolean | number | string }> | null;
+        panelRoomName?: string;
+        usageOrder?: string[];
+        expectedReply?: string;
+        candidates?: Array<{
+          title: string;
+          expected: Array<{ targetId: string; kind: string; value: boolean | number | string }>;
+        }>;
       }>;
       commandValidationCases: Array<{
         name: string;
@@ -1491,12 +1498,30 @@ describe("LocalIntentParser, DelayPhrase, UndoPhrase, and ModelIntentResolver", 
     };
 
     for (const item of corpus.intentCases) {
-      const plan = LocalIntentParser.parse(item.utterance, corpus.devices, []);
+      const plan = LocalIntentParser.parse(item.utterance, corpus.devices, [], {
+        panelRoomName: item.panelRoomName ?? null,
+        usageOrder: item.usageOrder ?? [],
+      });
       if (item.expected === null) {
         assert.equal(plan, null, item.utterance);
       } else {
         assert.ok(plan, `Expected plan for: ${item.utterance}`);
         assert.deepEqual(plan.intents.map(encodeOp as never), item.expected, item.utterance);
+        if (item.expectedReply !== undefined) {
+          assert.equal(plan.reply, item.expectedReply, item.utterance);
+        }
+        if (item.candidates !== undefined) {
+          assert.deepEqual(
+            plan.suggestions.map((suggestion) => suggestion.title),
+            item.candidates.map((candidate) => candidate.title),
+            item.utterance,
+          );
+          assert.deepEqual(
+            plan.suggestions.map((suggestion) => suggestion.intents.map(encodeOp as never)),
+            item.candidates.map((candidate) => candidate.expected),
+            item.utterance,
+          );
+        }
       }
     }
 
@@ -1545,6 +1570,37 @@ describe("LocalIntentParser, DelayPhrase, UndoPhrase, and ModelIntentResolver", 
     for (const item of corpus.undoCases) {
       assert.equal(UndoPhrase.isUndo(item.utterance), item.isUndo, item.utterance);
     }
+  });
+
+  it("caps bare category candidates at four plus one 全部关掉 (#273)", () => {
+    const lights: SmartDevice[] = Array.from({ length: 6 }, (_, index) => ({
+      id: `light.${index}`,
+      name: `测试灯${index}`,
+      roomId: `room_${index}`,
+      roomName: `房间${index}`,
+      model: "yeelink.light.lamp4",
+      isOnline: true,
+      kind: {
+        kind: "light",
+        entityId: `light.${index}`,
+        isOn: true,
+        brightnessPercent: 60,
+        colorTempKelvin: 4000,
+        minKelvin: 2700,
+        maxKelvin: 6500,
+        currentEffect: null,
+        availableEffects: [],
+      },
+    }));
+    const plan = LocalIntentParser.parse("关灯", lights, []);
+    assert.ok(plan);
+    assert.equal(plan.intents.length, 0);
+    assert.equal(plan.suggestions.length, 5);
+    assert.deepEqual(
+      plan.suggestions.map((suggestion) => suggestion.title),
+      ["关闭测试灯0", "关闭测试灯1", "关闭测试灯2", "关闭测试灯3", "全部关掉"],
+    );
+    assert.equal(plan.suggestions[4]?.intents.length, 6);
   });
 });
 

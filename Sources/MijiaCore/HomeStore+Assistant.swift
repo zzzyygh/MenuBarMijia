@@ -354,7 +354,13 @@ extension HomeStore {
 
         let plan: IntentPlan
         var habitSummary: String?
-        if let local = LocalIntentParser.parse(utterance, devices: devices, scenes: scenes) {
+        if let local = LocalIntentParser.parse(
+            utterance,
+            devices: devices,
+            scenes: scenes,
+            panelRoomName: panelRoomName,
+            usageOrder: userHabitMemory.usageOrder()
+        ) {
             plan = local
         } else if homeBackend == .demo {
             // 演示模式完全离线（#47）：本地解析不了的指令绝不送云端。
@@ -403,6 +409,10 @@ extension HomeStore {
                 setAssistantState(.awaitingChoice(plan.reply.isEmpty
                     ? ModelActionPolicy.confirmationReply(ranReply: nil)
                     : plan.reply))
+                return plan
+            }
+            if plan.source == .local, !plan.reply.isEmpty {
+                setAssistantState(.done(plan.reply))
                 return plan
             }
             setAssistantState(.failed(plan.reply.isEmpty ? L10n.tr("没有找到可执行的设备操作", "No matching device actions found") : plan.reply))

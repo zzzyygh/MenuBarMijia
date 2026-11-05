@@ -270,18 +270,21 @@ struct AskAssistantIntent: AppIntent {
             )))
         }
 
-        try await HomeStore.shared.waitForInitialSnapshot()
-        let blockedMessage = await MainActor.run { () -> String? in
-            let store = HomeStore.shared
-            return store.isControlBlockedByScreenLock ? store.screenLockBlockedMessage : nil
-        }
-        if let message = blockedMessage {
-            await notifyExternalAction(message)
-            return .result(dialog: intentDialog(message))
-        }
-        let message = await askAssistant(utterance)
+        let message = try await execute(in: HomeStore.shared)
         await notifyExternalAction(message)
         return .result(dialog: intentDialog(message))
+    }
+
+    /// Shortcuts and Siri have no suggestion chips, so an ambiguous command only ever reports back.
+    @MainActor
+    func execute(in store: HomeStore) async throws -> String {
+        let utterance = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !utterance.isEmpty else {
+            return L10n.tr("请先说一句要执行的家居指令", "Say a smart-home command first")
+        }
+        try await store.waitForInitialSnapshot()
+        if store.isControlBlockedByScreenLock { return store.screenLockBlockedMessage }
+        return await askAssistant(utterance, in: store)
     }
 }
 
@@ -364,8 +367,7 @@ struct MenuBarMijiaAppShortcuts: AppShortcutsProvider {
 /// Runs a natural-language command through the AI bar's entry point on the main actor and reduces
 /// the store state to one line, so Shortcuts/Siri can show it as the intent result.
 @MainActor
-private func askAssistant(_ utterance: String) async -> String {
-    let store = HomeStore.shared
+private func askAssistant(_ utterance: String, in store: HomeStore) async -> String {
     let plan = await store.runAssistantCommand(utterance)
 
     if store.pendingCloudConsent != nil {

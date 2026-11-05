@@ -353,7 +353,7 @@ export function startTimerLoop(host: MenuMijiaWindowsApp): void {
         host.missedScheduledCommands.push(...missed);
         changed = true;
         for (const item of run) {
-          void host.handleNaturalCommand(item.command, true);
+          void host.runScheduledCommand(item);
         }
       } else if (host.scheduledCommands.length > 0) {
         changed = true;
