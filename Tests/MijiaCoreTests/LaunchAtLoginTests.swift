@@ -106,10 +106,11 @@ struct LaunchAtLoginTests {
         #expect(checkedStore.launchAtLoginStatus == .enabled)
         #expect(!checkedStore.shouldShowLaunchAtLoginSuggestion)
 
+        let uncheckedSystem = FakeSystem()
         let uncheckedStore = Self.makeStore("unchecked")
         uncheckedStore.launchAtLoginOnboardingChoice = false
-        LaunchAtLoginCoordinator(system: system, store: uncheckedStore).applyOnboardingChoiceIfNeeded()
-        #expect(system.registerCalls == 1)
+        LaunchAtLoginCoordinator(system: uncheckedSystem, store: uncheckedStore).applyOnboardingChoiceIfNeeded()
+        #expect(uncheckedSystem.registerCalls == 0)
         #expect(uncheckedStore.hasAppliedLaunchAtLoginOnboardingChoice)
         #expect(uncheckedStore.launchAtLoginStatus == .notRegistered)
         #expect(!uncheckedStore.shouldShowLaunchAtLoginSuggestion)
