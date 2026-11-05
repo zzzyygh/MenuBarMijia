@@ -1305,6 +1305,37 @@ describe("LocalIntentParser, DelayPhrase, UndoPhrase, and ModelIntentResolver", 
     assert.equal(UndoPhrase.isUndo("刚才那个撤销"), true);
   });
 
+  it("applies the bare category close rule to another category", () => {
+    const secondFan: SmartDevice = {
+      ...devices[2]!,
+      id: "dev_bedroom_fan",
+      name: "主卧落地扇",
+      roomId: "bedroom",
+      roomName: "主卧",
+    };
+    const plan = LocalIntentParser.parse("关风扇", [...devices, secondFan], []);
+    assert.ok(plan);
+    assert.deepEqual(plan.intents, []);
+    assert.deepEqual(
+      plan.suggestions.map((suggestion) => suggestion.title),
+      ["关闭客厅风扇", "关闭主卧落地扇", "全部关掉"],
+    );
+    assert.equal(plan.suggestions.at(-1)?.intents.length, 2);
+
+    const single = LocalIntentParser.parse("关风扇", devices, []);
+    assert.ok(single);
+    assert.deepEqual(single.intents, [
+      { targetId: "dev_fan", operation: { kind: "power", isOn: false } },
+    ]);
+
+    const scoped = LocalIntentParser.parse("关掉所有灯", devices, []);
+    assert.ok(scoped);
+    assert.deepEqual(scoped.intents, [
+      { targetId: "dev_ceiling", operation: { kind: "power", isOn: false } },
+      { targetId: "dev_desk", operation: { kind: "power", isOn: false } },
+    ]);
+  });
+
   it("resolves Jev /v1/systemone multi-choice payload", async () => {
     const resolver = new ModelIntentResolver(
       {

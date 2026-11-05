@@ -151,6 +151,23 @@ struct BareCategoryCommandTests {
         #expect(purifier.intents == [DeviceIntent(targetId: "dev_living_purifier", operation: .power(false))])
     }
 
+    @Test("Several running air conditioners offer candidates like lights")
+    func otherCategoryCandidates() throws {
+        let secondAC = Self.climate("dev_bedroom_ac_on", "次卧壁挂机", room: "次卧", isOn: true)
+        let plan = try #require(LocalIntentParser.parse(
+            "关空调",
+            devices: [Self.livingAC, Self.bedroomAC, secondAC],
+            scenes: []
+        ))
+        #expect(plan.intents.isEmpty)
+        #expect(plan.suggestions.map(\.title) == [
+            "关闭客厅中央空调",
+            "关闭次卧壁挂机",
+            "全部关掉"
+        ])
+        #expect(plan.suggestions.last?.intents.count == 2)
+    }
+
     @Test("English bare-category closes use the same room rule")
     func englishUsesTheSameRule() throws {
         let plan = try #require(Self.parse("turn off the lights"))
