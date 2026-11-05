@@ -198,6 +198,12 @@ public struct ControlCenterPanel: View {
         .onChange(of: search.query) { _, query in
             if !query.isEmpty { store.recordOnboardingMilestone(.searchedDevice) }
         }
+        // #281: the guide can disappear in the same update that configures the source, so apply its
+        // launch-at-login choice here at the panel root where the transition is always observed.
+        .onChange(of: store.hasConfiguredHomeSource) { _, configured in
+            guard configured, !store.hasCompletedOnboarding else { return }
+            LaunchAtLoginCoordinator.live(store: store).applyOnboardingChoiceIfNeeded()
+        }
         // Mi cloud polls every 6 s only while the panel is on screen (#26).
         .onChange(of: isPresented) { _, visible in store.setPanelVisible(visible) }
         .onDisappear { store.setPanelVisible(false) }

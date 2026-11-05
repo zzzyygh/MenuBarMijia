@@ -77,9 +77,6 @@ public struct OnboardingGuideView: View {
                 }
             }
         }
-        .onChange(of: store.hasConfiguredHomeSource) { _, configured in
-            if configured { launchAtLogin.applyOnboardingChoiceIfNeeded() }
-        }
     }
 
     // MARK: - Header
