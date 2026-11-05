@@ -1367,5 +1367,21 @@
       ],
       "expected": "个人口头禅：「看书」→打开书房台灯"
     }
+  ],
+  "usageOrderCases": [
+    {
+      "name": "current bucket and day type rank by decayed frequency, ties by device id",
+      "date": "2026-10-16",
+      "hour": 21,
+      "entries": [
+        { "bucket": "夜晚", "targetId": "dev_desk", "operationKey": "power:on", "count": 3, "dayType": "weekday", "ageDays": 0 },
+        { "bucket": "夜晚", "targetId": "dev_ceiling", "operationKey": "power:off", "count": 2, "dayType": "weekday", "ageDays": 14 },
+        { "bucket": "清晨", "targetId": "dev_ac", "operationKey": "power:on", "count": 9, "dayType": "weekday", "ageDays": 0 },
+        { "bucket": "夜晚", "targetId": "dev_floor", "operationKey": "power:on", "count": 1, "dayType": "weekend", "ageDays": 0 },
+        { "bucket": "夜晚", "targetId": "dev_plug", "operationKey": "power:on", "count": 1, "dayType": "weekday", "ageDays": 0 },
+        { "bucket": "夜晚", "targetId": "dev_sensor", "operationKey": "power:on", "count": 1, "dayType": "weekday", "ageDays": 0 }
+      ],
+      "expected": ["dev_desk", "dev_ceiling", "dev_plug", "dev_sensor"]
+    }
   ]
 }

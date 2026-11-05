@@ -2831,6 +2831,13 @@ describe("Cross-platform habit memory corpus (#113, ADR-0009)", () => {
       phrases?: Array<{ phrase: string; targets: Array<{ targetId: string; operationKey: string }> }>;
       expected: string;
     }>;
+    usageOrderCases: Array<{
+      name: string;
+      date: string;
+      hour: number;
+      entries: Array<{ bucket: string; targetId: string; operationKey: string; count: number; dayType?: string; ageDays?: number }>;
+      expected: string[];
+    }>;
   };
 
   const toIntent = (item: { targetId: string; kind: string; value: unknown }): DeviceIntent => {
@@ -3003,6 +3010,12 @@ describe("Cross-platform habit memory corpus (#113, ADR-0009)", () => {
         item.expected,
         item.name,
       );
+    }
+
+    for (const item of corpus.usageOrderCases) {
+      const now = caseDate(item.date, item.hour);
+      const memory = memoryFrom(item.entries, now);
+      assert.deepEqual(memory.usageOrder(now), item.expected, item.name);
     }
 
     for (const item of corpus.shareCases) {

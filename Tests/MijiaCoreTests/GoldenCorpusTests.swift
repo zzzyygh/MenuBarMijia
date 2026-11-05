@@ -928,6 +928,15 @@ struct GoldenCorpusTests {
         let sequenceCases: [SequenceCase]
         let topSuggestionCases: [HabitTopSuggestionCase]
         let shareCases: [HabitShareCase]
+        let usageOrderCases: [UsageOrderCase]
+    }
+
+    private struct UsageOrderCase: Decodable {
+        let name: String
+        let date: String
+        let hour: Int
+        let entries: [HabitEntryInput]
+        let expected: [String]
     }
 
     private struct HabitShareCase: Decodable {
@@ -1211,6 +1220,12 @@ struct GoldenCorpusTests {
             )
             let actual = suggestions.map { $0.intents.map(Self.encodeIntent) }
             #expect(actual == item.expected, "\(item.name)")
+        }
+
+        for item in corpus.usageOrderCases {
+            let now = try Self.habitCaseDate(date: item.date, hour: item.hour)
+            let memory = UserHabitMemory(entries: try item.entries.map { try Self.makeEntry($0, now: now) })
+            #expect(memory.usageOrder(for: now) == item.expected, "\(item.name)")
         }
 
         for item in corpus.shareCases {
