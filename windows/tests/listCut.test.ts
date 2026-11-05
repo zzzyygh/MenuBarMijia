@@ -119,10 +119,12 @@ describe("device list cut", () => {
     );
   });
 
-  it("compares the room arm by room name", () => {
+  it("compares the room arm by room id, not the display name", () => {
+    const cnLiving = { ...living, roomId: "account-cn/ke_ting" };
+    const deLiving = { ...light("light.de_living", "客厅"), roomId: "account-de/ke_ting" };
     const shown = filterByListCut(
-      [living, study],
-      { kind: "room", roomName: "客厅" },
+      [cnLiving, deLiving, study],
+      { kind: "room", roomId: "account-cn/ke_ting", roomName: "客厅" },
       false,
     );
     assert.deepEqual(shown.map((dev) => dev.id), ["light.living"]);
@@ -142,7 +144,7 @@ describe("device list cut", () => {
 
   it("shows the kind row on a room cut when two tags exist", () => {
     const chips: DeviceKindTag[] = ["climate", "light"];
-    assert.equal(showsKindRow(chips, { kind: "room", roomName: "客厅" }), true);
+    assert.equal(showsKindRow(chips, { kind: "room", roomId: "客厅", roomName: "客厅" }), true);
     assert.equal(showsKindRow(["light"], { kind: "all" }), false);
     assert.equal(showsKindRow(["light"], { kind: "deviceKind", tag: "light" }), true);
   });

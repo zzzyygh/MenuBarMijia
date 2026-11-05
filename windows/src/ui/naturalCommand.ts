@@ -20,8 +20,11 @@ import type { DeviceIntent, IntentPlan, ScheduledCommand } from "../core/models.
 import { withAliases } from "./panelPrefs.js";
 
 function localParseOptions(host: MenuMijiaWindowsApp): LocalIntentParseOptions {
+  const cut = host.listCut;
   return {
-    panelRoomName: host.listCut.kind === "room" ? host.listCut.roomName : null,
+    panelRoom: cut.kind === "room"
+      ? { id: cut.roomId, name: cut.roomName }
+      : null,
     usageOrder: new UserHabitMemory(
       host.settings.habitEntries,
       host.habitSequences(),

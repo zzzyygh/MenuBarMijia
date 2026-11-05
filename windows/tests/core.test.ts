@@ -1408,6 +1408,43 @@ describe("LocalIntentParser, DelayPhrase, UndoPhrase, and ModelIntentResolver", 
     assert.equal(fans.suggestions.length, 3);
   });
 
+  it("scopes a bare category close by room id, not a shared room name", () => {
+    const light = (id: string, name: string, roomId: string, roomName: string): SmartDevice => ({
+      id,
+      name,
+      roomId,
+      roomName,
+      model: "yeelink.light.lamp4",
+      isOnline: true,
+      kind: {
+        kind: "light",
+        entityId: `light.${id}`,
+        isOn: true,
+        brightnessPercent: null,
+        colorTempKelvin: null,
+        minKelvin: 2700,
+        maxKelvin: 6500,
+        currentEffect: null,
+        availableEffects: [],
+      },
+    });
+    const devices = [
+      light("dev_cn", "客厅吸顶灯", "account-cn/ke_ting", "客厅"),
+      light("dev_de", "客厅吊灯", "account-de/ke_ting", "客厅"),
+    ];
+    const withoutRoom = LocalIntentParser.parse("关灯", devices, []);
+    assert.ok(withoutRoom);
+    assert.deepEqual(withoutRoom.intents, []);
+
+    const scoped = LocalIntentParser.parse("关灯", devices, [], {
+      panelRoom: { id: "account-cn/ke_ting", name: "客厅" },
+    });
+    assert.ok(scoped);
+    assert.deepEqual(scoped.intents, [
+      { targetId: "dev_cn", operation: { kind: "power", isOn: false } },
+    ]);
+  });
+
   it("resolves Jev /v1/systemone multi-choice payload", async () => {
     const resolver = new ModelIntentResolver(
       {
@@ -1559,19 +1596,21 @@ describe("LocalIntentParser, DelayPhrase, UndoPhrase, and ModelIntentResolver", 
 
   it("matches the cross-platform golden JSON corpus shared with MijiaCoreTests", () => {
     const raw = readFileSync(resolve(process.cwd(), "../Tests/Fixtures/intent_golden.json"), "utf8");
+    type GoldenIntentCase = {
+      utterance: string;
+      expected: Array<{ targetId: string; kind: string; value: boolean | number | string }> | null;
+      panelRoom?: { id: string; name: string };
+      usageOrder?: string[];
+      expectedReply?: string;
+      candidates?: Array<{
+        title: string;
+        expected: Array<{ targetId: string; kind: string; value: boolean | number | string }>;
+      }>;
+    };
     const corpus = JSON.parse(raw) as {
       devices: SmartDevice[];
-      intentCases: Array<{
-        utterance: string;
-        expected: Array<{ targetId: string; kind: string; value: boolean | number | string }> | null;
-        panelRoomName?: string;
-        usageOrder?: string[];
-        expectedReply?: string;
-        candidates?: Array<{
-          title: string;
-          expected: Array<{ targetId: string; kind: string; value: boolean | number | string }>;
-        }>;
-      }>;
+      intentCases: GoldenIntentCase[];
+      catalogCases: Array<{ name: string; devices: SmartDevice[]; cases: GoldenIntentCase[] }>;
       commandValidationCases: Array<{
         name: string;
         intent: { targetId: string; kind: string; value: boolean | number | string };
@@ -1600,31 +1639,41 @@ describe("LocalIntentParser, DelayPhrase, UndoPhrase, and ModelIntentResolver", 
       return { targetId: intent.targetId, kind: k, value: val };
     };
 
-    for (const item of corpus.intentCases) {
-      const plan = LocalIntentParser.parse(item.utterance, corpus.devices, [], {
-        panelRoomName: item.panelRoomName ?? null,
+    const expectIntentCase = (item: GoldenIntentCase, devices: SmartDevice[], label: string): void => {
+      const plan = LocalIntentParser.parse(item.utterance, devices, [], {
+        panelRoom: item.panelRoom ?? null,
         usageOrder: item.usageOrder ?? [],
       });
       if (item.expected === null) {
-        assert.equal(plan, null, item.utterance);
-      } else {
-        assert.ok(plan, `Expected plan for: ${item.utterance}`);
-        assert.deepEqual(plan.intents.map(encodeOp as never), item.expected, item.utterance);
-        if (item.expectedReply !== undefined) {
-          assert.equal(plan.reply, item.expectedReply, item.utterance);
-        }
-        if (item.candidates !== undefined) {
-          assert.deepEqual(
-            plan.suggestions.map((suggestion) => suggestion.title),
-            item.candidates.map((candidate) => candidate.title),
-            item.utterance,
-          );
-          assert.deepEqual(
-            plan.suggestions.map((suggestion) => suggestion.intents.map(encodeOp as never)),
-            item.candidates.map((candidate) => candidate.expected),
-            item.utterance,
-          );
-        }
+        assert.equal(plan, null, label);
+        return;
+      }
+      assert.ok(plan, `Expected plan for: ${label}`);
+      assert.deepEqual(plan.intents.map(encodeOp as never), item.expected, label);
+      if (item.expectedReply !== undefined) {
+        assert.equal(plan.reply, item.expectedReply, label);
+      }
+      if (item.candidates !== undefined) {
+        assert.deepEqual(
+          plan.suggestions.map((suggestion) => suggestion.title),
+          item.candidates.map((candidate) => candidate.title),
+          label,
+        );
+        assert.deepEqual(
+          plan.suggestions.map((suggestion) => suggestion.intents.map(encodeOp as never)),
+          item.candidates.map((candidate) => candidate.expected),
+          label,
+        );
+      }
+    };
+
+    for (const item of corpus.intentCases) {
+      expectIntentCase(item, corpus.devices, item.utterance);
+    }
+
+    for (const catalog of corpus.catalogCases) {
+      for (const item of catalog.cases) {
+        expectIntentCase(item, catalog.devices, `${catalog.name}: ${item.utterance}`);
       }
     }
 

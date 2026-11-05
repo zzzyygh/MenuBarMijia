@@ -27,6 +27,13 @@ struct BareCategoryCommandStoreTests {
     static func makeStore(
         _ devices: [SmartDevice] = [studyCeiling, studyDesk, bedroomLamp, kitchenLight]
     ) async throws -> (HomeStore, MockHomeProvider) {
+        try await makeStore(devices, rooms: rooms)
+    }
+
+    static func makeStore(
+        _ devices: [SmartDevice],
+        rooms: [RoomArea]
+    ) async throws -> (HomeStore, MockHomeProvider) {
         let mock = MockHomeProvider(snapshot: SynthesizedHome(rooms: rooms, devices: devices))
         let store = HomeStore(provider: mock, defaultsSuiteName: "test.bare.\(UUID().uuidString)")
         for _ in 0..<50 where store.devices.isEmpty {
@@ -143,18 +150,49 @@ struct BareCategoryCommandStoreTests {
         #expect(store.assistantSuggestions.contains { $0.id.hasPrefix("bare:off") } == false)
     }
 
+    @Test("关灯 follows the panel room id, not a shared room name across accounts")
+    func panelRoomUsesRoomId() async throws {
+        let cnCeiling = Self.light(
+            "dev_cn_ceiling", "客厅吸顶灯", roomId: "account-cn/ke_ting", roomName: "客厅", isOn: true
+        )
+        let deCeiling = Self.light(
+            "dev_de_ceiling", "客厅吊灯", roomId: "account-de/ke_ting", roomName: "客厅", isOn: true
+        )
+        let (store, mock) = try await Self.makeStore(
+            [cnCeiling, deCeiling],
+            rooms: [
+                RoomArea(id: "account-cn/ke_ting", name: "客厅", sortOrder: 0),
+                RoomArea(id: "account-de/ke_ting", name: "客厅", sortOrder: 1)
+            ]
+        )
+        #expect(store.selectRoom("account-cn/ke_ting"))
+        #expect(store.panelRoom == BareCategoryCommand.Room(id: "account-cn/ke_ting", name: "客厅"))
+
+        let plan = try #require(await store.runAssistantCommand("关灯"))
+        #expect(plan.intents.map(\.targetId) == ["dev_cn_ceiling"])
+        let executed = await mock.executedCommands
+        #expect(executed == [.setLightPower(entityId: "light.dev_cn_ceiling", isOn: false)])
+        #expect(store.devices.first { $0.id == "dev_de_ceiling" }?.isActiveOn == true)
+    }
+
     @Test("A delayed bare 关灯 resolves against the panel room when the timer is set")
     func delayedCommandResolvesWhenScheduled() async throws {
         let (store, mock) = try await Self.makeStore()
         #expect(store.selectRoom("study"))
-        store.assistantSleep = { _ in try await Task.sleep(for: .milliseconds(60)) }
+        let gate = AsyncStream.makeStream(of: Void.self)
+        store.assistantSleep = { _ in
+            var iterator = gate.stream.makeAsyncIterator()
+            _ = await iterator.next()
+        }
 
         let plan = try #require(await store.runAssistantCommand("10分钟后关灯"))
         #expect(plan.intents.map(\.targetId) == ["dev_study_ceiling", "dev_study_desk"])
         #expect(store.scheduledCommands.count == 1)
+        // The timer is parked inside assistantSleep, so nothing can run before the test releases it.
         #expect(await mock.executedCommands.isEmpty)
 
         store.selectRoom(nil)
+        gate.continuation.finish()
         for _ in 0..<50 where !store.scheduledCommands.isEmpty {
             try await Task.sleep(for: .milliseconds(20))
         }

@@ -67,7 +67,8 @@ struct BareCategoryCommandTests {
             text,
             devices: devices,
             scenes: [],
-            panelRoomName: panelRoomName,
+            // These fixtures use the room name as the room id.
+            panelRoom: panelRoomName.map { BareCategoryCommand.Room(id: $0, name: $0) },
             usageOrder: usageOrder
         )
     }
@@ -201,6 +202,33 @@ struct BareCategoryCommandTests {
         let onAC = Self.climate("dev_bedroom_ac", "主卧挂机", room: "主卧", isOn: true)
         let plan = try #require(LocalIntentParser.parse("关空调", devices: [offAC, onAC], scenes: []))
         #expect(plan.intents == [DeviceIntent(targetId: "dev_bedroom_ac", operation: .power(false))])
+    }
+
+    @Test("An on device whose power is read-only is reported, not called off")
+    func readOnlyActiveDeviceIsReported() throws {
+        let camera = SmartDevice(
+            id: "dev_camera", name: "客厅摄像机", roomId: "living", roomName: "客厅",
+            model: "chuangmi.camera.81ac1", isOnline: true,
+            kind: .camera(CameraSpec(
+                entityId: "miot:dev_camera:2",
+                isOn: true,
+                availableNightShots: ["Off", "On", "Auto"],
+                powerWritable: false
+            ))
+        )
+        let plan = try #require(LocalIntentParser.parse("关监控", devices: [camera], scenes: []))
+        #expect(plan.intents.isEmpty)
+        #expect(plan.suggestions.isEmpty)
+        #expect(plan.reply == "摄像机开着，但无法关闭")
+
+        // A writable camera still closes normally.
+        let writable = SmartDevice(
+            id: "dev_camera_2", name: "书房摄像机", roomId: "study", roomName: "书房",
+            model: "chuangmi.camera.81ac1", isOnline: true,
+            kind: .camera(CameraSpec(entityId: "miot:dev_camera_2:2", isOn: true))
+        )
+        let closes = try #require(LocalIntentParser.parse("关监控", devices: [writable], scenes: []))
+        #expect(closes.intents == [DeviceIntent(targetId: "dev_camera_2", operation: .power(false))])
     }
 
     @Test("English bare-category closes use the same room rule")

@@ -173,7 +173,12 @@ export class MenuMijiaWindowsApp {
   public set selectedRoom(room: string) {
     this.listCut = !room || room === "全部"
       ? { kind: "all" }
-      : { kind: "room", roomName: room };
+      : { kind: "room", roomId: this.roomIdForName(room), roomName: room };
+  }
+
+  /** Rooms are listed by name; identity comes from the first device in that room (#273). */
+  public roomIdForName(roomName: string): string {
+    return this.devices.find((device) => device.roomName === roomName)?.roomId ?? roomName;
   }
 
   public selectDeviceKind(tag: DeviceKindTag): void {

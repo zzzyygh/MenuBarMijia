@@ -502,8 +502,13 @@ function buildPlanFromCandidates(
 
 // MARK: - Bare Category Commands
 
+export interface BareCategoryRoom {
+  readonly id: string;
+  readonly name: string;
+}
+
 export interface LocalIntentParseOptions {
-  readonly panelRoomName?: string | null;
+  readonly panelRoom?: BareCategoryRoom | null;
   readonly usageOrder?: readonly string[];
 }
 
@@ -536,16 +541,16 @@ export const BARE_CATEGORY_CANDIDATE_LIMIT = 4;
  */
 export function resolveBareCategory(
   active: readonly SmartDevice[],
-  panelRoomName: string | null,
+  panelRoom: BareCategoryRoom | null,
   usageOrder: readonly string[] = [],
 ): BareCategoryResolution {
   if (active.length === 0) return { kind: "none", room: null };
   if (active.length === 1) return { kind: "run", devices: [...active] };
-  if (panelRoomName) {
-    const inRoom = active.filter((dev) => dev.roomName === panelRoomName);
+  if (panelRoom && panelRoom.id) {
+    const inRoom = active.filter((dev) => dev.roomId === panelRoom.id);
     return inRoom.length > 0
       ? { kind: "run", devices: inRoom }
-      : { kind: "none", room: panelRoomName };
+      : { kind: "none", room: panelRoom.name };
   }
   const rank = new Map(usageOrder.map((id, index) => [id, index]));
   const ranked = active
@@ -566,6 +571,11 @@ type BareCategoryOutcome =
 function bareCategoryAnswer(category: IntentCategory, room: string | null): string {
   const noun = BARE_CATEGORY_NOUNS[category] ?? "设备";
   return room === null || room.length === 0 ? `${noun}都关着` : `${room}的${noun}都关着`;
+}
+
+/** The device is on, but this command cannot switch it off (a read-only camera). */
+function bareCategoryBlockedReply(category: IntentCategory): string {
+  return `${BARE_CATEGORY_NOUNS[category] ?? "设备"}开着，但无法关闭`;
 }
 
 function bareCategoryChoiceReply(devices: readonly SmartDevice[]): string {
@@ -610,15 +620,26 @@ function bareCategoryOutcome(
   const onlyOff = ops.length === 1 && ops[0]?.kind === "power" && !ops[0].isOn;
   if (!onlyOff || hasScope || hasRoomWord || wanted === null || wanted.size !== 1) return null;
   const category = [...wanted][0]!;
-  const active = devices.filter((dev) => {
+  // What is on is what answers the user, even when it cannot be switched off (#273 review).
+  const on = devices.filter((dev) => {
     const deviceCat = deviceCategory(dev);
-    if (!dev.isOnline || !isAssistantControllable(deviceCat)) return false;
-    if (!deviceAcceptsControlWrites(dev) || !isDeviceActiveOn(dev)) return false;
-    if (!wanted.has(deviceCat)) return false;
+    return dev.isOnline && isAssistantControllable(deviceCat) && wanted.has(deviceCat) && isDeviceActiveOn(dev);
+  });
+  const switchable = on.filter((dev) => {
     const intent: DeviceIntent = { targetId: dev.id, operation: { kind: "power", isOn: false } };
     return IntentValidator.commandsForIntent(intent, dev).length > 0;
   });
-  const resolution = resolveBareCategory(active, options.panelRoomName ?? null, options.usageOrder ?? []);
+  if (on.length > 0 && switchable.length === 0) {
+    return {
+      plan: {
+        intents: [],
+        reply: bareCategoryBlockedReply(category),
+        source: "local",
+        suggestions: [],
+      },
+    };
+  }
+  const resolution = resolveBareCategory(switchable, options.panelRoom ?? null, options.usageOrder ?? []);
   switch (resolution.kind) {
     case "none":
       return {

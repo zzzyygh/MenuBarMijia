@@ -10,6 +10,14 @@ struct GoldenCorpusTests {
         let delayCases: [DelayCase]
         let cancelCases: [CancelCase]
         let undoCases: [UndoCase]
+        /// Extra device catalogs whose names collide with category words or whose power is read-only.
+        let catalogCases: [CatalogCase]
+    }
+
+    private struct CatalogCase: Decodable {
+        let name: String
+        let devices: [CorpusDevice]
+        let cases: [IntentCase]
     }
 
     private struct CorpusDevice: Decodable {
@@ -326,10 +334,15 @@ struct GoldenCorpusTests {
         let expected: [ExpectedIntent]
     }
 
+    private struct PanelRoomCase: Decodable {
+        let id: String
+        let name: String
+    }
+
     private struct IntentCase: Decodable {
         let utterance: String
         let expected: [ExpectedIntent]?
-        let panelRoomName: String?
+        let panelRoom: PanelRoomCase?
         let usageOrder: [String]?
         let expectedReply: String?
         let candidates: [CandidateCase]?
@@ -639,28 +652,13 @@ struct GoldenCorpusTests {
         let devices = corpus.devices.map { $0.toSmartDevice() }
 
         for item in corpus.intentCases {
-            let plan = LocalIntentParser.parse(
-                item.utterance,
-                devices: devices,
-                scenes: [],
-                panelRoomName: item.panelRoomName,
-                usageOrder: item.usageOrder ?? []
-            )
-            guard let expected = item.expected else {
-                #expect(plan == nil, "\(item.utterance)")
-                continue
-            }
-            let resolved = try #require(plan, "\(item.utterance)")
-            #expect(resolved.intents.map(Self.encodeIntent) == expected, "\(item.utterance)")
-            if let reply = item.expectedReply {
-                #expect(resolved.reply == reply, "\(item.utterance)")
-            }
-            if let candidates = item.candidates {
-                #expect(resolved.suggestions.map(\.title) == candidates.map(\.title), "\(item.utterance)")
-                #expect(
-                    resolved.suggestions.map { $0.intents.map(Self.encodeIntent) } == candidates.map(\.expected),
-                    "\(item.utterance)"
-                )
+            try Self.expectIntentCase(item, devices: devices)
+        }
+
+        for catalog in corpus.catalogCases {
+            let catalogDevices = catalog.devices.map { $0.toSmartDevice() }
+            for item in catalog.cases {
+                try Self.expectIntentCase(item, devices: catalogDevices, label: "\(catalog.name): \(item.utterance)")
             }
         }
 
@@ -1104,6 +1102,37 @@ struct GoldenCorpusTests {
             dayType: dto.dayType.flatMap(UserHabitMemory.DayType.init(rawValue:)),
             lastRecordedAt: now.addingTimeInterval(Double(-(dto.ageDays ?? 0)) * 86_400)
         )
+    }
+
+    private static func expectIntentCase(
+        _ item: IntentCase,
+        devices: [SmartDevice],
+        label: String? = nil
+    ) throws {
+        let name = label ?? item.utterance
+        let plan = LocalIntentParser.parse(
+            item.utterance,
+            devices: devices,
+            scenes: [],
+            panelRoom: item.panelRoom.map { BareCategoryCommand.Room(id: $0.id, name: $0.name) },
+            usageOrder: item.usageOrder ?? []
+        )
+        guard let expected = item.expected else {
+            #expect(plan == nil, "\(name)")
+            return
+        }
+        let resolved = try #require(plan, "\(name)")
+        #expect(resolved.intents.map(Self.encodeIntent) == expected, "\(name)")
+        if let reply = item.expectedReply {
+            #expect(resolved.reply == reply, "\(name)")
+        }
+        if let candidates = item.candidates {
+            #expect(resolved.suggestions.map(\.title) == candidates.map(\.title), "\(name)")
+            #expect(
+                resolved.suggestions.map { $0.intents.map(Self.encodeIntent) } == candidates.map(\.expected),
+                "\(name)"
+            )
+        }
     }
 
     private static func intent(from expected: ExpectedIntent) -> DeviceIntent? {

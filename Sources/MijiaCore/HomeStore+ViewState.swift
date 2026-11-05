@@ -81,7 +81,14 @@ extension HomeStore {
     /// The room whose devices the panel is showing, if any. Bare-category commands target it (#273).
     public var panelRoomName: String? {
         guard let id = selectedRoomId else { return nil }
-        return rooms.first { $0.id == id }?.name
+        return rooms.first { $0.id == id }?.name ?? devices.first { $0.roomId == id }?.roomName
+    }
+
+    /// The panel's room with its identity, so a bare-category command cannot cross into another
+    /// account's room that shares the display name (#273, ADR-0010).
+    public var panelRoom: BareCategoryCommand.Room? {
+        guard let id = selectedRoomId, let name = panelRoomName else { return nil }
+        return BareCategoryCommand.Room(id: id, name: name)
     }
 
     @discardableResult

@@ -358,7 +358,7 @@ extension HomeStore {
             utterance,
             devices: devices,
             scenes: scenes,
-            panelRoomName: panelRoomName,
+            panelRoom: panelRoom,
             usageOrder: userHabitMemory.usageOrder()
         ) {
             plan = local

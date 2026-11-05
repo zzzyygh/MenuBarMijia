@@ -7,6 +7,19 @@ import Foundation
 public enum BareCategoryCommand {
     public static let candidateLimit = 4
 
+    /// The room the panel is showing. Identity, not the display name, decides which devices are on
+    /// the page: two accounts can each have a 客厅 (ADR-0010), so `关灯` must only touch the room
+    /// whose id the panel selected.
+    public struct Room: Equatable, Sendable {
+        public let id: String
+        public let name: String
+
+        public init(id: String, name: String) {
+            self.id = id
+            self.name = name
+        }
+    }
+
     public enum Resolution: Equatable, Sendable {
         /// Nothing of the category is on; `room` is set when the panel's room had none on.
         case none(room: String?)
@@ -18,14 +31,14 @@ public enum BareCategoryCommand {
 
     public static func resolve(
         active: [SmartDevice],
-        panelRoomName: String?,
+        panelRoom: Room?,
         usageOrder: [String] = []
     ) -> Resolution {
         guard !active.isEmpty else { return .none(room: nil) }
         if active.count == 1 { return .run(active) }
-        if let room = panelRoomName, !room.isEmpty {
-            let inRoom = active.filter { $0.roomName == room }
-            return inRoom.isEmpty ? .none(room: room) : .run(inRoom)
+        if let room = panelRoom, !room.id.isEmpty {
+            let inRoom = active.filter { $0.roomId == room.id }
+            return inRoom.isEmpty ? .none(room: room.name) : .run(inRoom)
         }
         return .candidates(ranked(active, by: usageOrder))
     }
@@ -53,6 +66,16 @@ public enum BareCategoryCommand {
             "The %@ %@ are all off",
             L10n.displayRoomName(room),
             noun
+        )
+    }
+
+    /// The device is on, but nothing in this command can switch it off (a read-only camera, a light
+    /// without a writable power property). Saying "都关着" here would be a false reassurance.
+    public static func blockedReply(category: IntentDeviceCategory) -> String {
+        L10n.format(
+            "%@开着，但无法关闭",
+            "The %@ are on but cannot be switched off",
+            category.spokenNoun
         )
     }
 

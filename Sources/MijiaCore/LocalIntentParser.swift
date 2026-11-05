@@ -106,7 +106,7 @@ public enum LocalIntentParser {
         _ utterance: String,
         devices: [SmartDevice],
         scenes: [HomeScene],
-        panelRoomName: String? = nil,
+        panelRoom: BareCategoryCommand.Room? = nil,
         usageOrder: [String] = []
     ) -> IntentPlan? {
         let text = String(String.UnicodeScalarView(utterance.unicodeScalars.filter { !ignorable.contains($0) }))
@@ -121,7 +121,7 @@ public enum LocalIntentParser {
             text,
             devices: devices,
             scenes: scenes,
-            panelRoomName: panelRoomName,
+            panelRoom: panelRoom,
             usageOrder: usageOrder
         ) {
             return plan
@@ -135,7 +135,7 @@ public enum LocalIntentParser {
                 utterance,
                 devices: devices,
                 scenes: scenes,
-                panelRoomName: panelRoomName,
+                panelRoom: panelRoom,
                 usageOrder: usageOrder
             )
         }
@@ -169,7 +169,7 @@ public enum LocalIntentParser {
         _ text: String,
         devices: [SmartDevice],
         scenes: [HomeScene],
-        panelRoomName: String?,
+        panelRoom: BareCategoryCommand.Room?,
         usageOrder: [String]
     ) -> IntentPlan? {
         var rest = text
@@ -254,7 +254,7 @@ public enum LocalIntentParser {
                 hasRoomWord: !matchedRooms.isEmpty,
                 devices: devices,
                 scenes: scenes,
-                panelRoomName: panelRoomName,
+                panelRoom: panelRoom,
                 usageOrder: usageOrder
             ) {
                 switch bare {
@@ -316,7 +316,7 @@ public enum LocalIntentParser {
         hasRoomWord: Bool,
         devices: [SmartDevice],
         scenes: [HomeScene],
-        panelRoomName: String?,
+        panelRoom: BareCategoryCommand.Room?,
         usageOrder: [String]
     ) -> BareCategoryOutcome? {
         guard ops == [.power(false)],
@@ -325,16 +325,23 @@ public enum LocalIntentParser {
               let wanted,
               wanted.count == 1,
               let category = wanted.first else { return nil }
-        let active = devices.filter { dev in
+        // What is on is what answers the user, even when it cannot be switched off (#273 review).
+        let on = devices.filter { dev in
             let deviceCategory = IntentDeviceCategory(dev)
             return dev.isOnline
                 && deviceCategory.isAssistantControllable
-                && dev.kind.acceptsControlWrites
-                && dev.isActiveDevice
                 && wanted.contains(deviceCategory)
-                && IntentValidator.normalize(.power(false), for: dev) != nil
+                && dev.isActiveDevice
         }
-        switch BareCategoryCommand.resolve(active: active, panelRoomName: panelRoomName, usageOrder: usageOrder) {
+        let switchable = on.filter { IntentValidator.normalize(.power(false), for: $0) != nil }
+        if !on.isEmpty, switchable.isEmpty {
+            return .plan(IntentPlan(
+                intents: [],
+                reply: BareCategoryCommand.blockedReply(category: category),
+                source: .local
+            ))
+        }
+        switch BareCategoryCommand.resolve(active: switchable, panelRoom: panelRoom, usageOrder: usageOrder) {
         case .none(let room):
             return .plan(IntentPlan(
                 intents: [],
@@ -543,7 +550,7 @@ public enum LocalIntentParser {
         _ utterance: String,
         devices: [SmartDevice],
         scenes: [HomeScene],
-        panelRoomName: String?,
+        panelRoom: BareCategoryCommand.Room?,
         usageOrder: [String]
     ) -> IntentPlan? {
         let lower = utterance.lowercased()
@@ -711,7 +718,7 @@ public enum LocalIntentParser {
                 hasRoomWord: !matchedRoomKeys.isEmpty,
                 devices: devices,
                 scenes: scenes,
-                panelRoomName: panelRoomName,
+                panelRoom: panelRoom,
                 usageOrder: usageOrder
             ) {
                 switch bare {

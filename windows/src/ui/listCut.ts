@@ -4,7 +4,7 @@ export type DeviceKindTag = DeviceKind["kind"];
 
 export type DeviceListCut =
   | { readonly kind: "all" }
-  | { readonly kind: "room"; readonly roomName: string }
+  | { readonly kind: "room"; readonly roomId: string; readonly roomName: string }
   | { readonly kind: "deviceKind"; readonly tag: DeviceKindTag };
 
 export const KIND_RANK: Record<DeviceKindTag, number> = {
@@ -42,7 +42,7 @@ export function filterByListCut(
   hideOffline: boolean,
 ): SmartDevice[] {
   return visible(devices, hideOffline).filter((dev) => {
-    if (cut.kind === "room") return dev.roomName === cut.roomName;
+    if (cut.kind === "room") return dev.roomId === cut.roomId;
     if (cut.kind === "deviceKind") return dev.kind.kind === cut.tag;
     return true;
   });
