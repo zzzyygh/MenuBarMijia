@@ -20,6 +20,12 @@ enum RoomOrderExit: Equatable {
     case cancel
 }
 
+/// Which list the order session is showing: the room strip, or the device-kind chips under it.
+enum OrderListTarget: Equatable {
+    case rooms
+    case kinds
+}
+
 // MARK: - Draft
 
 /// Room order and aliases for one reorder session, held in memory until the session ends.
@@ -161,6 +167,34 @@ extension RoomPrefs {
     }
 }
 
+// MARK: - Kind chip order
+
+/// The user's order for the device-kind chips (插座、扫地机…) under the room strip.
+///
+/// The order list edits ids, so each kind travels as a `RoomArea` whose id is the tag's raw value
+/// and whose name is its chip title; the draft only reads those two fields. Kinds the saved order
+/// does not know yet follow in their built-in `rank` order. Only the chip row reads this: device
+/// sections keep their own ordering.
+enum KindOrderPrefs {
+    static let orderKey = "kind_custom_order"
+
+    static func items(for tags: [DeviceKindTag]) -> [RoomArea] {
+        tags.enumerated().map { RoomArea(id: $1.rawValue, name: $1.chipTitle, sortOrder: $0) }
+    }
+
+    static func apply(order: [String], to tags: [DeviceKindTag]) -> [DeviceKindTag] {
+        RoomPrefs.apply(order: order, to: items(for: tags)).compactMap { DeviceKindTag(rawValue: $0.id) }
+    }
+
+    static func persist(order: [String], to defaults: UserDefaults = .standard) {
+        defaults.set(RoomPrefs.encodeOrder(order), forKey: orderKey)
+    }
+
+    static func storedOrder(from defaults: UserDefaults = .standard) -> [String] {
+        RoomPrefs.decodeOrder(defaults.string(forKey: orderKey) ?? "[]")
+    }
+}
+
 // MARK: - LayoutUIState session
 
 extension LayoutUIState {
@@ -168,13 +202,34 @@ extension LayoutUIState {
     var isRoomOrdering: Bool { editMode == .roomOrder }
 
     /// Opens a reorder session. `order` is the saved order; the draft seeds it with every visible
-    /// room so a room missing from the saved list still gets a row.
-    func beginRoomOrder(rooms: [RoomArea], order: [String], aliases: [String: String]) {
+    /// room so a room missing from the saved list still gets a row. The same session also holds the
+    /// kind-chip order, so 完成 / 取消 / Esc settle both lists at once.
+    func beginRoomOrder(
+        rooms: [RoomArea],
+        order: [String],
+        aliases: [String: String],
+        kinds: [RoomArea] = [],
+        kindOrder: [String] = [],
+        target: OrderListTarget = .rooms
+    ) {
         let draft = RoomOrderDraft(order: RoomPrefs.seededOrder(order, rooms: rooms), aliases: aliases)
         renamingRoomId = nil
         editMode = .roomOrder
         roomOrderDraft = draft
-        focusedRoomId = draft.visibleOrder(for: rooms).first
+        kindOrderDraft = RoomOrderDraft(order: RoomPrefs.seededOrder(kindOrder, rooms: kinds), aliases: [:])
+        switchOrderTarget(to: target, items: target == .rooms ? rooms : kinds)
+    }
+
+    /// Shows the other list of the open session. Focus moves to the first row of the new list,
+    /// because a focused id from the other list means nothing here.
+    func switchOrderTarget(to target: OrderListTarget, items: [RoomArea]) {
+        orderTarget = target
+        focusedRoomId = activeOrderDraft?.visibleOrder(for: items).first
+    }
+
+    /// The draft the list is editing right now.
+    var activeOrderDraft: RoomOrderDraft? {
+        orderTarget == .rooms ? roomOrderDraft : kindOrderDraft
     }
 
     /// Leaves the room-order session, writing the draft back on every exit except an explicit cancel.
@@ -182,10 +237,17 @@ extension LayoutUIState {
     /// `@AppStorage` observes.
     func exitRoomOrder(_ exit: RoomOrderExit, defaults: UserDefaults = .standard) {
         guard editMode == .roomOrder else { return }
-        if exit == .commit, let draft = roomOrderDraft {
-            RoomPrefs.persist(order: draft.order, aliases: draft.aliases, to: defaults)
+        if exit == .commit {
+            if let draft = roomOrderDraft {
+                RoomPrefs.persist(order: draft.order, aliases: draft.aliases, to: defaults)
+            }
+            if let draft = kindOrderDraft {
+                KindOrderPrefs.persist(order: draft.order, to: defaults)
+            }
         }
         roomOrderDraft = nil
+        kindOrderDraft = nil
+        orderTarget = .rooms
         focusedRoomId = nil
         renamingRoomId = nil
         editMode = .none
@@ -225,6 +287,22 @@ extension LayoutUIState {
         roomOrderDraft = draft
     }
 
+    /// The kind-chip counterpart of `updateRoomOrderDraft`.
+    func updateKindOrderDraft(kinds: [RoomArea], _ mutate: (inout RoomOrderDraft) -> Void) {
+        guard var draft = kindOrderDraft else { return }
+        mutate(&draft)
+        draft.reconcile(rooms: kinds)
+        kindOrderDraft = draft
+    }
+
+    /// Mutates whichever list is on screen; `items` must be that list's items.
+    func updateActiveOrderDraft(items: [RoomArea], _ mutate: (inout RoomOrderDraft) -> Void) {
+        switch orderTarget {
+        case .rooms: updateRoomOrderDraft(rooms: items, mutate)
+        case .kinds: updateKindOrderDraft(kinds: items, mutate)
+        }
+    }
+
     /// Closes whichever name prompt is open. Returns `true` when a prompt owned the key press, so
     /// Esc never falls through to "clear first responder" / "hide panel" behind a typing field.
     @discardableResult
@@ -248,6 +326,8 @@ extension LayoutUIState {
     func resetForTesting() {
         editMode = .none
         roomOrderDraft = nil
+        kindOrderDraft = nil
+        orderTarget = .rooms
         focusedRoomId = nil
         newGroupForDevice = nil
         renamingGroupId = nil

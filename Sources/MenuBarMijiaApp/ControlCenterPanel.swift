@@ -35,6 +35,9 @@ public struct ControlCenterPanel: View {
     /// In-memory mirror of a just-committed room order: `@AppStorage` publishes a moment later, so
     /// reading only it would show the pre-session order for one frame (§6.3).
     @State var liveRoomOrder: [String]?
+    /// Device-kind chip order (插座、扫地机…), edited in the same order session as rooms.
+    @AppStorage(KindOrderPrefs.orderKey) var kindOrderRaw: String = "[]"
+    @State var liveKindOrder: [String]?
     /// #60: type-to-search. The query lives outside `@State` because the app-wide key monitor
     /// (`PanelSearchKeyboard`) has to read and write it before AppKit dispatches the event.
     @State var search = PanelSearchState.shared
@@ -181,6 +184,10 @@ public struct ControlCenterPanel: View {
         .onChange(of: store.homeBackend) { _, _ in layoutUI.commitRoomOrderIfNeeded() }
         // The saved key caught up with the commit (or something else rewrote it): drop the mirror.
         .onChange(of: roomOrderRaw) { _, _ in liveRoomOrder = nil }
+        .onChange(of: kindOrderRaw) { _, _ in liveKindOrder = nil }
+        .onChange(of: store.kindChips) { _, _ in
+            if isRoomOrdering { layoutUI.updateKindOrderDraft(kinds: kindItems) { _ in } }
+        }
     }
 
     // MARK: - Body hooks
@@ -305,9 +312,13 @@ public struct ControlCenterPanel: View {
                     .transition(AppleMotion.drawerTransition)
             } else if isRoomOrdering {
                 if showsRoomStripPreview {
-                    roomFilterBar
-                        .padding(.horizontal, 14)
-                        .padding(.bottom, 8)
+                    VStack(alignment: .leading, spacing: 6) {
+                        roomFilterBar
+                        // Ordering kinds previews the chip row under the strip instead.
+                        if layoutUI.orderTarget == .kinds { kindFilterBar }
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.bottom, 8)
                 }
             } else {
                 listFilterBars

@@ -467,11 +467,11 @@ public final class HotkeyAndNotificationManager: NSObject, @preconcurrency UNUse
             ) {
                 switch action {
                 case .moveFocus(let delta):
-                    RoomOrderKeyboard.moveFocus(delta, rooms: store.rooms)
+                    RoomOrderKeyboard.moveFocus(delta, rooms: RoomOrderKeyboard.items(store: store))
                 case .moveRow(let slots):
-                    RoomOrderKeyboard.moveFocused(bySlots: slots, rooms: store.rooms)
+                    RoomOrderKeyboard.moveFocused(bySlots: slots, rooms: RoomOrderKeyboard.items(store: store))
                 case .moveRowToEdge(let toFront):
-                    RoomOrderKeyboard.moveFocusedToEdge(toFront: toFront, rooms: store.rooms)
+                    RoomOrderKeyboard.moveFocusedToEdge(toFront: toFront, rooms: RoomOrderKeyboard.items(store: store))
                 case .commit:
                     // 排序模式的 Return 只提交退出，绝不能落到 `toggleFocusedDevice()`。
                     LayoutUIState.shared.exitRoomOrder(.commit)

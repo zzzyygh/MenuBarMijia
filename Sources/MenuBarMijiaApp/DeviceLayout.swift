@@ -574,7 +574,11 @@ final class LayoutUIState {
     /// The reorder session's in-memory order and aliases; `nil` outside `roomOrder`. Dragging writes
     /// only here, so `@AppStorage` never republishes mid-drag.
     var roomOrderDraft: RoomOrderDraft?
-    /// Keyboard / VoiceOver focus inside the room-order list.
+    /// The same session's kind-chip order; `nil` outside `roomOrder`.
+    var kindOrderDraft: RoomOrderDraft?
+    /// Which of the two lists the order session shows.
+    var orderTarget: OrderListTarget = .rooms
+    /// Keyboard / VoiceOver focus inside the order list (a room id, or a kind's raw value).
     var focusedRoomId: String?
 }
 

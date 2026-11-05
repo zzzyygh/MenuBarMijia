@@ -55,11 +55,44 @@ extension ControlCenterPanel {
         RoomPrefs.seededOrder(RoomPrefs.decodeOrder(roomOrderRaw), rooms: store.rooms)
     }
 
+    // MARK: - Kind Chips Order
+
+    /// Kind chips in the user's order; the session draft wins while the order list is open.
+    var displayKinds: [DeviceKindTag] {
+        let order = layoutUI.kindOrderDraft?.order
+            ?? liveKindOrder
+            ?? RoomPrefs.decodeOrder(kindOrderRaw)
+        return KindOrderPrefs.apply(order: order, to: store.kindChips)
+    }
+
+    var kindItems: [RoomArea] { KindOrderPrefs.items(for: store.kindChips) }
+
+    var canReorderRooms: Bool { store.rooms.count >= 2 }
+    var canReorderKinds: Bool { store.kindChips.count >= 2 }
+
+    /// One visible slot left/right for a kind chip's context menu; written straight away, like the
+    /// room pills' one-step moves.
+    func moveKind(_ tag: DeviceKindTag, by delta: Int) {
+        let visible = displayKinds.map(\.rawValue)
+        guard let from = visible.firstIndex(of: tag.rawValue) else { return }
+        let current = RoomPrefs.seededOrder(RoomPrefs.decodeOrder(kindOrderRaw), rooms: kindItems)
+        let next = RoomPrefs.reordered(current, id: tag.rawValue, toVisibleIndex: from + delta, visible: visible)
+        guard next != current else { return }
+        withAnimation(.spring(response: 0.42, dampingFraction: 0.82)) {
+            kindOrderRaw = RoomPrefs.encodeOrder(next)
+        }
+    }
+
     // MARK: - Room Order Session (#146 redesign)
 
-    /// Opens the reorder list from the strip's sort button or a pill's "排序房间…" item.
-    func beginRoomOrder() {
-        guard store.rooms.count >= 2 else { return }
+    /// Opens the reorder list from the strip's sort button or a pill's "排序房间…" item. `target`
+    /// picks the list shown first; it falls back to the other one when it has nothing to order.
+    func beginRoomOrder(target: OrderListTarget = .rooms) {
+        guard canReorderRooms || canReorderKinds else { return }
+        let start: OrderListTarget = switch target {
+        case .rooms: canReorderRooms ? .rooms : .kinds
+        case .kinds: canReorderKinds ? .kinds : .rooms
+        }
         withAnimation(AppleMotion.snappySpring) {
             store.expandedDeviceId = nil
             draggingId = nil
@@ -68,9 +101,17 @@ extension ControlCenterPanel {
             // cannot leave device-layout editing half-open (§5.2).
             layoutUI.endDeviceLayoutEditing()
             liveRoomOrder = nil
+            liveKindOrder = nil
             // The grid is gone for the duration of the session, so its frames are stale (§5.1).
             tileFrames = [:]
-            layoutUI.beginRoomOrder(rooms: store.rooms, order: currentRoomOrder, aliases: roomAliases)
+            layoutUI.beginRoomOrder(
+                rooms: store.rooms,
+                order: currentRoomOrder,
+                aliases: roomAliases,
+                kinds: kindItems,
+                kindOrder: RoomPrefs.decodeOrder(kindOrderRaw),
+                target: start
+            )
         }
     }
 
@@ -79,12 +120,16 @@ extension ControlCenterPanel {
     /// without touching `UserDefaults`.
     func finishRoomOrder(_ exit: RoomOrderExit) {
         let draft = layoutUI.roomOrderDraft
-        let nothingToWrite = exit == .commit && draft?.isDirty(currentRooms: store.rooms) == false
+        let kindDraft = layoutUI.kindOrderDraft
+        let nothingToWrite = exit == .commit
+            && draft?.isDirty(currentRooms: store.rooms) != true
+            && kindDraft?.isDirty(currentRooms: kindItems) != true
         withAnimation(AppleMotion.snappySpring) {
             if exit == .commit, !nothingToWrite {
                 // `@AppStorage` republishes a moment after the write; without this mirror the strip
                 // would fall back to the pre-session order for one frame (§6.3).
                 liveRoomOrder = draft?.order
+                liveKindOrder = kindDraft?.order
             }
             layoutUI.exitRoomOrder(nothingToWrite ? .cancel : exit)
         }

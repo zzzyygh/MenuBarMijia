@@ -117,7 +117,7 @@ _Avoid_: Static icon（静态图标）、Chatbot avatar（聊天头像）
 _Avoid_: DeviceGroup（本地自定义分组）、Room grouping（房间分组）
 
 **RoomOrderDraft（房间排序草稿）**：
-一次房间排序会话里在内存中维护的完整顺序与别名（`RoomOrderDraft`）：进入会话时用 `RoomPrefs.seededOrder` 拍下完整历史顺序（含其他家庭/账号暂时不可见的房间 id），拖动、键盘与 VoiceOver 只改草稿，不写 `UserDefaults`；「完成」或任一会触发提交的隐式退出（面板隐藏、搜索、换家庭、进入设备布局、退出应用）经 `RoomPrefs.persist` 合并写回 `room_custom_order` / `room_aliases`，只有显式「取消」/`Esc` 丢弃草稿。「恢复默认顺序」只把当前可见房间恢复成 provider 顺序，保留其他家庭 id 的相对位置，且不改动别名。
+一次房间排序会话里在内存中维护的完整顺序与别名（`RoomOrderDraft`）：进入会话时用 `RoomPrefs.seededOrder` 拍下完整历史顺序（含其他家庭/账号暂时不可见的房间 id），拖动、键盘与 VoiceOver 只改草稿，不写 `UserDefaults`；「完成」或任一会触发提交的隐式退出（面板隐藏、搜索、换家庭、进入设备布局、退出应用）经 `RoomPrefs.persist` 合并写回 `room_custom_order` / `room_aliases`，只有显式「取消」/`Esc` 丢弃草稿。「恢复默认顺序」只把当前可见房间恢复成 provider 顺序，保留其他家庭 id 的相对位置，且不改动别名。同一会话还带一份设备类型筛选胶囊的草稿（`kindOrderDraft`，存 `kind_custom_order`），列表顶部「房间 | 类型」切换（`OrderListTarget`），「完成」/「取消」同时结算两份。
 _Avoid_: Room order（保存后的顺序值）、Layout edit（设备布局编辑）
 
 **PanelEditMode（面板编辑模式）**：

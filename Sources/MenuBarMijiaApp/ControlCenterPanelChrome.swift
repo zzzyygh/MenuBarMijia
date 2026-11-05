@@ -369,7 +369,9 @@ extension ControlCenterPanel {
         if isRoomOrdering {
             // Short on purpose: the long explanation lives under the list title, and a sentence
             // this wide used to be clipped inside the 166 pt status column (§5.9).
-            return L10n.tr("调整房间顺序", "Reorder rooms")
+            return layoutUI.orderTarget == .kinds
+                ? L10n.tr("调整类型顺序", "Reorder kinds")
+                : L10n.tr("调整房间顺序", "Reorder rooms")
         }
         if isEditingLayout {
             return L10n.tr("拖动卡片排序，点右下角圆弧手柄改大小", "Drag to reorder, drag or tap the corner handle to resize")
@@ -499,7 +501,7 @@ extension ControlCenterPanel {
         ScrollViewReader { proxy in
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 2) {
-                    ForEach(store.kindChips, id: \.self) { tag in
+                    ForEach(displayKinds, id: \.self) { tag in
                         kindPill(tag)
                             .id(tag)
                     }
@@ -547,35 +549,74 @@ extension ControlCenterPanel {
         }
     }
 
+    @ViewBuilder
     func kindPillButton(_ tag: DeviceKindTag) -> some View {
         let isSelected = store.listCut == .kind(tag)
-        let surface = TileSurface(isActive: true, scheme: effectiveScheme)
-        return Button {
-            withAnimation(AppleMotion.snappySpring) {
-                if store.listCut == .kind(tag) {
-                    kindScrollTrigger &+= 1
-                } else {
-                    store.selectKind(tag)
-                }
-            }
-        } label: {
-            Text(tag.chipTitle)
-                .font(.system(size: DesignTokens.TypeSize.caption, weight: isSelected ? .semibold : .medium))
-                .foregroundStyle(isSelected ? surface.ink : Color.secondary)
-                .padding(.horizontal, 11)
-                .padding(.vertical, 5)
-                .background {
-                    if isSelected {
-                        Capsule(style: .continuous)
-                            .fill(surface.fill)
-                            .shadow(color: .black.opacity(effectiveScheme == .dark ? 0.28 : 0.10), radius: 2, y: 1)
+        // While the order list is open the chip row is a live preview, like the room strip.
+        if isRoomOrdering {
+            kindPillLabel(tag, isSelected: isSelected)
+                .accessibilityLabel(Text(tag.chipTitle))
+                .accessibilityHint(Text(L10n.tr("排序预览，不可点选", "Order preview; not selectable")))
+        } else {
+            Button {
+                withAnimation(AppleMotion.snappySpring) {
+                    if store.listCut == .kind(tag) {
+                        kindScrollTrigger &+= 1
+                    } else {
+                        store.selectKind(tag)
                     }
                 }
-                .contentShape(Capsule(style: .continuous))
+            } label: {
+                kindPillLabel(tag, isSelected: isSelected)
+            }
+            .buttonStyle(.plain)
+            .accessibilityAddTraits(isSelected ? .isSelected : [])
+            .contextMenu {
+                Button {
+                    moveKind(tag, by: -1)
+                } label: {
+                    Label(L10n.tr("左移", "Move Left"), systemImage: "arrow.left")
+                }
+                .disabled(displayKinds.first == tag)
+                Button {
+                    moveKind(tag, by: 1)
+                } label: {
+                    Label(L10n.tr("右移", "Move Right"), systemImage: "arrow.right")
+                }
+                .disabled(displayKinds.last == tag)
+                Divider()
+                Button {
+                    beginRoomOrder(target: .kinds)
+                } label: {
+                    Label(L10n.tr("排序类型…", "Reorder Kinds…"), systemImage: "arrow.up.arrow.down")
+                }
+            }
+            .accessibilityActions {
+                Button(L10n.tr("左移", "Move Left")) { moveKind(tag, by: -1) }
+                    .disabled(displayKinds.first == tag)
+                Button(L10n.tr("右移", "Move Right")) { moveKind(tag, by: 1) }
+                    .disabled(displayKinds.last == tag)
+                Button(L10n.tr("排序类型", "Reorder Kinds…")) { beginRoomOrder(target: .kinds) }
+            }
         }
-        .buttonStyle(.plain)
-        .accessibilityAddTraits(isSelected ? .isSelected : [])
-        .animation(AppleMotion.snappySpring, value: isSelected)
+    }
+
+    func kindPillLabel(_ tag: DeviceKindTag, isSelected: Bool) -> some View {
+        let surface = TileSurface(isActive: true, scheme: effectiveScheme)
+        return Text(tag.chipTitle)
+            .font(.system(size: DesignTokens.TypeSize.caption, weight: isSelected ? .semibold : .medium))
+            .foregroundStyle(isSelected ? surface.ink : Color.secondary)
+            .padding(.horizontal, 11)
+            .padding(.vertical, 5)
+            .background {
+                if isSelected {
+                    Capsule(style: .continuous)
+                        .fill(surface.fill)
+                        .shadow(color: .black.opacity(effectiveScheme == .dark ? 0.28 : 0.10), radius: 2, y: 1)
+                }
+            }
+            .contentShape(Capsule(style: .continuous))
+            .animation(AppleMotion.snappySpring, value: isSelected)
     }
 
     /// `[全部] [rooms…scroll…]` inside one capsule track, with the sort and view controls beside it.
@@ -645,7 +686,7 @@ extension ControlCenterPanel {
     var sortRoomsButton: some View {
         // Device-layout editing has its own Done; entering a second mode from inside it is not part
         // of the state machine (§5.2), so the entry is closed there.
-        if store.rooms.count >= 2, !isEditingLayout {
+        if canReorderRooms || canReorderKinds, !isEditingLayout {
             Button {
                 if isRoomOrdering {
                     finishRoomOrder(.commit)
@@ -673,12 +714,12 @@ extension ControlCenterPanel {
                     )
             }
             .buttonStyle(.plain)
-            .accessibilityLabel(Text(L10n.tr("房间排序", "Room order")))
+            .accessibilityLabel(Text(L10n.tr("排序", "Reorder")))
             .accessibilityAddTraits(isRoomOrdering ? .isSelected : [])
-            .accessibilityHint(Text(L10n.tr("调整房间在首页的显示顺序", "Set the order rooms appear in")))
+            .accessibilityHint(Text(L10n.tr("调整房间和设备类型的显示顺序", "Set the order of rooms and device kinds")))
             .panelHelp(isRoomOrdering
                 ? L10n.tr("完成排序并返回设备", "Finish reordering and go back")
-                : L10n.tr("房间排序：调整房间在首页的显示顺序", "Room order: set the order rooms appear in"))
+                : L10n.tr("排序：调整房间和设备类型的显示顺序", "Reorder: set the order of rooms and device kinds"))
         }
     }
 

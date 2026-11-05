@@ -115,6 +115,8 @@ private struct RoomOrderRowData: Identifiable, Equatable {
     let deviceCount: Int
     /// A room that joined while the session is open (§5.8).
     let isNew: Bool
+    /// Rooms take a local alias; device kinds have fixed names.
+    let canRename: Bool
 }
 
 private struct RoomOrderDrag {
@@ -212,17 +214,30 @@ struct RoomOrderEditor: View {
         return rowDatas().firstIndex { $0.id == focused }
     }
 
+    /// The rooms or kinds the list is ordering right now.
+    private var items: [RoomArea] { RoomOrderKeyboard.items(store: store, ui: ui) }
+
+    private var isKinds: Bool { ui.orderTarget == .kinds }
+
     private func rowDatas() -> [RoomOrderRowData] {
-        guard let draft = ui.roomOrderDraft else { return [] }
+        guard let draft = ui.activeOrderDraft else { return [] }
+        let items = items
         let hidden = store.hiddenDeviceIds
-        return draft.visibleOrder(for: store.rooms).compactMap { id in
-            guard let room = store.rooms.first(where: { $0.id == id }) else { return nil }
+        let kinds = isKinds
+        return draft.visibleOrder(for: items).compactMap { id in
+            guard let item = items.first(where: { $0.id == id }) else { return nil }
+            let name = kinds ? item.name : L10n.displayRoomName(item.name)
+            let count = store.devices.filter { device in
+                guard !hidden.contains(device.id) else { return false }
+                return kinds ? device.kind.tag.rawValue == id : device.roomId == id
+            }.count
             return RoomOrderRowData(
                 id: id,
-                title: RoomPrefs.alias(for: id, in: draft.aliases) ?? L10n.displayRoomName(room.name),
-                originalName: L10n.displayRoomName(room.name),
-                deviceCount: store.devices.filter { $0.roomId == id && !hidden.contains($0.id) }.count,
-                isNew: draft.isFresh(id)
+                title: RoomPrefs.alias(for: id, in: draft.aliases) ?? name,
+                originalName: name,
+                deviceCount: count,
+                isNew: draft.isFresh(id),
+                canRename: !kinds
             )
         }
     }
@@ -255,24 +270,66 @@ struct RoomOrderEditor: View {
 
     private func listHeader(rows: [RoomOrderRowData]) -> some View {
         VStack(alignment: .leading, spacing: 2) {
-            HStack(alignment: .firstTextBaseline, spacing: 6) {
-                Text(L10n.tr("房间顺序", "Room order"))
-                    .font(.system(size: DesignTokens.TypeSize.body, weight: .semibold))
-                    .foregroundStyle(.primary)
+            HStack(alignment: .center, spacing: 6) {
+                if showsTargetPicker {
+                    targetPicker
+                } else {
+                    Text(isKinds ? L10n.tr("类型顺序", "Kind order") : L10n.tr("房间顺序", "Room order"))
+                        .font(.system(size: DesignTokens.TypeSize.body, weight: .semibold))
+                        .foregroundStyle(.primary)
+                }
                 Spacer(minLength: 6)
-                Text(L10n.tr("\(rows.count) 个房间", "\(rows.count) rooms"))
+                Text(isKinds
+                    ? L10n.tr("\(rows.count) 个类型", "\(rows.count) kinds")
+                    : L10n.tr("\(rows.count) 个房间", "\(rows.count) rooms"))
                     .font(.system(size: DesignTokens.TypeSize.caption, weight: .semibold))
                     .monospacedDigit()
                     .foregroundStyle(.secondary)
             }
             // The long explanation lives here once; the status line above only says 调整房间顺序 (§5.9).
-            Text(L10n.tr("拖动调整首页显示顺序", "Drag to set the home order"))
+            Text(isKinds
+                ? L10n.tr("拖动调整类型筛选的显示顺序", "Drag to set the kind filter order")
+                : L10n.tr("拖动调整首页显示顺序", "Drag to set the home order"))
                 .font(.system(size: DesignTokens.TypeSize.caption, weight: .medium))
                 .foregroundStyle(.secondary)
         }
         .padding(.horizontal, 13)
         .padding(.top, 10)
         .padding(.bottom, 6)
+    }
+
+    /// 房间 | 类型, shown only when both lists have something to order.
+    private var showsTargetPicker: Bool {
+        store.rooms.count >= 2 && store.kindChips.count >= 2
+    }
+
+    private var targetPicker: some View {
+        Picker(selection: Binding(
+            get: { ui.orderTarget },
+            set: { switchTarget(to: $0) }
+        )) {
+            Text(L10n.tr("房间", "Rooms")).tag(OrderListTarget.rooms)
+            Text(L10n.tr("类型", "Kinds")).tag(OrderListTarget.kinds)
+        } label: {
+            Text(L10n.tr("排序对象", "Order"))
+        }
+        .pickerStyle(.segmented)
+        .labelsHidden()
+        .controlSize(.small)
+        .fixedSize()
+        .accessibilityHint(Text(L10n.tr("在房间顺序和类型顺序之间切换", "Switch between room order and kind order")))
+    }
+
+    private func switchTarget(to target: OrderListTarget) {
+        guard target != ui.orderTarget else { return }
+        stopAutoScroll()
+        drag = nil
+        withAnimation(motion) {
+            ui.switchOrderTarget(
+                to: target,
+                items: target == .rooms ? store.rooms : KindOrderPrefs.items(for: store.kindChips)
+            )
+        }
     }
 
     private var listFooter: some View {
@@ -284,14 +341,18 @@ struct RoomOrderEditor: View {
                     .font(.system(size: DesignTokens.TypeSize.caption, weight: .medium))
             }
             .buttonStyle(PillActionButtonStyle())
-            .accessibilityHint(Text(L10n.tr(
-                "把当前家庭的房间恢复成默认顺序，不改动名称",
-                "Restore this home's rooms to their default order, leaving names untouched"
-            )))
-            .panelHelp(L10n.tr(
-                "只重排当前可见房间的顺序，其他家庭和账号的顺序保留；点取消可整体回滚",
-                "Re-ranks the visible rooms only, keeping other homes' order; Cancel rolls it all back"
-            ))
+            .accessibilityHint(Text(isKinds
+                ? L10n.tr("把类型恢复成默认顺序", "Restore the kinds to their default order")
+                : L10n.tr(
+                    "把当前家庭的房间恢复成默认顺序，不改动名称",
+                    "Restore this home's rooms to their default order, leaving names untouched"
+                )))
+            .panelHelp(isKinds
+                ? L10n.tr("恢复类型的默认顺序；点取消可整体回滚", "Restore the default kind order; Cancel rolls it all back")
+                : L10n.tr(
+                    "只重排当前可见房间的顺序，其他家庭和账号的顺序保留；点取消可整体回滚",
+                    "Re-ranks the visible rooms only, keeping other homes' order; Cancel rolls it all back"
+                ))
 
             Spacer()
         }
@@ -317,8 +378,8 @@ struct RoomOrderEditor: View {
     private func beginDrag(with value: DragGesture.Value) {
         let rows = rowDatas()
         guard rows.count >= 2, viewport.height > 0 else { return }
-        // The rename column answers a click, never a pick-up (§5.3).
-        guard value.startLocation.x < viewport.width - RoomOrderMetrics.trailingActionColumn else { return }
+        // The rename column answers a click, never a pick-up (§5.3). Kind rows have no rename button.
+        guard isKinds || value.startLocation.x < viewport.width - RoomOrderMetrics.trailingActionColumn else { return }
         guard let index = RoomOrderMetrics.rowIndex(atContentY: contentY(value.startLocation.y), rowCount: rows.count) else { return }
         let grabFromTop = contentY(value.startLocation.y) - CGFloat(index) * RoomOrderMetrics.rowStep
         drag = RoomOrderDrag(id: rows[index].id, grabFromTop: grabFromTop, pointerY: value.location.y)
@@ -356,7 +417,7 @@ struct RoomOrderEditor: View {
         guard let target = RoomOrderMetrics.targetIndex(rowTop: top, rowCount: rows.count), target != current
         else { return }
         withAnimation(motion) {
-            ui.updateRoomOrderDraft(rooms: store.rooms) { draft in
+            ui.updateActiveOrderDraft(items: items) { draft in
                 draft.move(id: session.id, toVisibleIndex: target, visible: rows.map(\.id))
             }
         }
@@ -429,19 +490,20 @@ struct RoomOrderEditor: View {
 
     private func shift(_ id: String, by delta: Int) {
         ui.focusedRoomId = id
-        RoomOrderKeyboard.moveFocused(bySlots: delta, rooms: store.rooms, ui: ui, motion: motion)
+        RoomOrderKeyboard.moveFocused(bySlots: delta, rooms: items, ui: ui, motion: motion)
     }
 
     private func moveEdge(_ id: String, toFront: Bool) {
         ui.focusedRoomId = id
-        RoomOrderKeyboard.moveFocusedToEdge(toFront: toFront, rooms: store.rooms, ui: ui, motion: motion)
+        RoomOrderKeyboard.moveFocusedToEdge(toFront: toFront, rooms: items, ui: ui, motion: motion)
     }
 
     /// Provider order for the visible rooms only; aliases and other homes' slots are untouched, and
     /// the draft is still a draft, so 取消 can roll it back (§5.7).
     private func restoreDefaultOrder() {
         withAnimation(motion) {
-            ui.updateRoomOrderDraft(rooms: store.rooms) { $0.resetOrder(rooms: store.rooms) }
+            let items = items
+            ui.updateActiveOrderDraft(items: items) { $0.resetOrder(rooms: items) }
         }
     }
 
@@ -484,7 +546,7 @@ private struct RoomOrderRowView: View {
 
             HStack(spacing: 0) {
                 label
-                renameButton
+                if row.canRename { renameButton }
             }
             .background(shape.fill(Color.primary.opacity(isHovered || isFocused ? 0.05 : 0)))
             .overlay {
@@ -520,8 +582,10 @@ private struct RoomOrderRowView: View {
                 Label(L10n.tr("移到最后", "Move to End"), systemImage: "arrow.down.to.line")
             }
             .disabled(index == total - 1)
-            Divider()
-            Button { onRename() } label: { Label(L10n.tr("重命名房间…", "Rename Room…"), systemImage: "pencil") }
+            if row.canRename {
+                Divider()
+                Button { onRename() } label: { Label(L10n.tr("重命名房间…", "Rename Room…"), systemImage: "pencil") }
+            }
             if row.title != row.originalName {
                 Divider()
                 Text(L10n.tr("原名：\(row.originalName)", "Original name: \(row.originalName)"))
@@ -630,8 +694,13 @@ enum RoomOrderKeyboard {
         NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? nil : AppleMotion.snappySpring
     }
 
+    /// The items of the list on screen: rooms, or the device kinds as id/name pairs.
+    static func items(store: HomeStore, ui: LayoutUIState = .shared) -> [RoomArea] {
+        ui.orderTarget == .rooms ? store.rooms : KindOrderPrefs.items(for: store.kindChips)
+    }
+
     static func visibleIds(rooms: [RoomArea], ui: LayoutUIState = .shared) -> [String] {
-        ui.roomOrderDraft?.visibleOrder(for: rooms) ?? []
+        ui.activeOrderDraft?.visibleOrder(for: rooms) ?? []
     }
 
     /// ↑/↓ moves the focus, wrapping at both ends so the list can be walked in either direction.
@@ -655,7 +724,7 @@ enum RoomOrderKeyboard {
         let ids = visibleIds(rooms: rooms, ui: ui)
         guard let from = ids.firstIndex(of: id), ids.indices.contains(from + slots) else { return }
         withAnimation(motion ?? defaultMotion) {
-            ui.updateRoomOrderDraft(rooms: rooms) { $0.move(id: id, toVisibleIndex: from + slots, visible: ids) }
+            ui.updateActiveOrderDraft(items: rooms) { $0.move(id: id, toVisibleIndex: from + slots, visible: ids) }
         }
         NSHapticFeedbackManager.defaultPerformer.perform(.alignment, performanceTime: .now)
         announce(rooms: rooms, ui: ui)
@@ -665,7 +734,7 @@ enum RoomOrderKeyboard {
     static func moveFocusedToEdge(toFront: Bool, rooms: [RoomArea], ui: LayoutUIState = .shared, motion: Animation? = nil) {
         guard let id = ui.focusedRoomId else { return }
         withAnimation(motion ?? defaultMotion) {
-            ui.updateRoomOrderDraft(rooms: rooms) { draft in
+            ui.updateActiveOrderDraft(items: rooms) { draft in
                 if toFront { draft.moveToFront(id: id) } else { draft.moveToEnd(id: id) }
             }
         }
@@ -678,8 +747,8 @@ enum RoomOrderKeyboard {
         guard let id = ui.focusedRoomId else { return }
         let ids = visibleIds(rooms: rooms, ui: ui)
         guard let index = ids.firstIndex(of: id), let room = rooms.first(where: { $0.id == id }) else { return }
-        let title = ui.roomOrderDraft.flatMap { RoomPrefs.alias(for: id, in: $0.aliases) }
-            ?? L10n.displayRoomName(room.name)
+        let title = ui.activeOrderDraft.flatMap { RoomPrefs.alias(for: id, in: $0.aliases) }
+            ?? (ui.orderTarget == .kinds ? room.name : L10n.displayRoomName(room.name))
         let text = L10n.tr(
             "\(title)，第 \(index + 1) 个，共 \(ids.count) 个",
             "\(title), position \(index + 1) of \(ids.count)"
