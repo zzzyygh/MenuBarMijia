@@ -91,19 +91,28 @@ public final class CameraLivePanelController: NSObject, NSWindowDelegate {
         }
     }
 
-    /// Plays the chime and opens the ringing doorbell's camera at the top right (#308). A window
-    /// the user already had open is never moved or closed; a window the ring opened closes after
-    /// the user's delay unless they reopened it, switched camera or went picture-in-picture.
+    /// Plays the chime and opens the ringing doorbell's camera at the top right (#308). A camera
+    /// view or picture-in-picture session already on screen is left alone; a window the ring opened
+    /// closes after the user's delay unless they reopened it, switched camera or went picture-in-picture.
     private func respondToDoorbell(_ response: DoorbellResponse) {
         if response.playsChime { NSSound(named: "Glass")?.play() }
-        guard let store, let deviceId = response.cameraDeviceId else { return }
-        let wasVisible = isVisible
+        guard let store, let deviceId = response.cameraDeviceId, !isPictureInPictureActive else { return }
+        if isVisible {
+            // A later press while the ring's own window is up keeps it open for another full delay.
+            if isDoorbellPlacement, activeDeviceId == deviceId { scheduleDoorbellDismiss(deviceId, after: response.dismissAfter) }
+            return
+        }
         store.openCameraLiveView(deviceId)
-        guard !wasVisible, activeDeviceId == deviceId, let panel = panelWindow, panel.isVisible else { return }
+        guard activeDeviceId == deviceId, let panel = panelWindow, panel.isVisible else { return }
         panel.setFrame(Self.topRightFrame(for: panel.frame.size), display: true)
         isDoorbellPlacement = true
+        scheduleDoorbellDismiss(deviceId, after: response.dismissAfter)
+    }
+
+    private func scheduleDoorbellDismiss(_ deviceId: String, after delay: Duration) {
+        doorbellDismissTask?.cancel()
         doorbellDismissTask = Task { @MainActor [weak self] in
-            try? await Task.sleep(for: response.dismissAfter)
+            try? await Task.sleep(for: delay)
             guard !Task.isCancelled, let self else { return }
             self.doorbellDismissTask = nil
             guard self.isVisible, self.activeDeviceId == deviceId, !self.isPictureInPictureActive else { return }
