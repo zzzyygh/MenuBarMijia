@@ -248,7 +248,10 @@ public final class CameraLivePanelController: NSObject, NSWindowDelegate {
             self.isPictureInPicturePossible = pip.isPossible
             self.isPictureInPictureActive = pip.isActive
             if pip.isActive, !wasActive {
-                // The system PiP window replaces the floating panel; the stream stays live.
+                // The system PiP window replaces the floating panel; the stream stays live. Taking
+                // a ring's window into PiP means the user wants it, so it no longer closes itself.
+                self.doorbellDismissTask?.cancel()
+                self.doorbellDismissTask = nil
                 self.setURLFieldActive(false)
                 if !self.isDoorbellPlacement, let frame = self.panelWindow?.frame {
                     UserDefaults.standard.set(NSStringFromRect(frame), forKey: Self.frameStorageKey)
