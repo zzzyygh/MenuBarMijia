@@ -201,7 +201,7 @@ def digest(body: str) -> str:
     return hashlib.sha1(re.sub(r"\s+", " ", plain(body)).encode()).hexdigest()[:12]
 
 
-def codex_review(summary: Json | None, comments: list[Json], mine: set[str]) -> tuple[Json | None, bool]:
+def codex_review(summary: Json | None, comments: list[Json], mine: set[str], head: str) -> tuple[Json | None, bool]:
     """The Codex `code_review` state from its summary comment (`body`, `updated_at`), and
     whether that review counts as failed. A failure, either `status: failed` or a "Something
     went wrong" note, counts only while no `@codex review` request is newer than it, so a
@@ -218,7 +218,10 @@ def codex_review(summary: Json | None, comments: list[Json], mine: set[str]) -> 
                      if who(c)[0] in mine and "@codex review" in (c.get("body") or "")), default="")
     note = max((c.get("createdAt") or "" for c in comments
                 if who(c)[0] == CODEX_BOT and CODEX_FAILED.search(c.get("body") or "")), default="")
-    failed_state = bool(state) and state.get("status") == "failed" and (summary or {}).get("updated_at", "") > requested
+    failed_state = (
+        bool(state) and state.get("commit_sha") == head and state.get("status") == "failed"
+        and (summary or {}).get("updated_at", "") > requested
+    )
     return state, failed_state or note > requested
 
 
@@ -535,7 +538,7 @@ class Watcher:
                         self.emit(f"summary:{s['id']}:{new}", f"{bot} summary changed on {short}: {text} {s['url']}")
 
         # Codex review on the current head.
-        codex, codex_failed = codex_review(self.codex_summary() if self.until == "codex" else None, comments, mine)
+        codex, codex_failed = codex_review(self.codex_summary() if self.until == "codex" else None, comments, mine, head)
         codex_on_head = bool(codex) and codex.get("commit_sha") == head
         codex_status = (codex or {}).get("status") if codex_on_head else None
         codex_findings = bool((codex or {}).get("has_unresolved_findings")) if codex_on_head else False
