@@ -97,13 +97,9 @@ extension HomeStore {
             updated.kind = .camera(s)
             command = .setSwitch(entityId: s.entityId, isOn: s.isOn)
         case .cover(var s):
-            guard let open = s.openDescription, let close = s.closeDescription,
-                  let pos = s.positionPercent else {
-                toggleExpanded(device.id)
-                return nil
-            }
             // A curtain tap is a three-way control: travel stops, otherwise open/close. Window
             // openers and the other subtypes keep the one-tap open/close they had before (#223).
+            // Pause needs no position reading, so a moving curtain stops before the position guard.
             if s.subtype == .curtain, s.isMoving {
                 guard let pause = s.pauseDescription else {
                     toggleExpanded(device.id)
@@ -113,6 +109,11 @@ extension HomeStore {
                 updated.kind = .cover(s)
                 command = .setSelectOption(entityId: s.entityId, option: pause)
             } else {
+                guard let open = s.openDescription, let close = s.closeDescription,
+                      let pos = s.positionPercent else {
+                    toggleExpanded(device.id)
+                    return nil
+                }
                 let shouldOpen = pos == 0
                 s.positionPercent = shouldOpen ? 100 : 0
                 s.motion = shouldOpen ? .opening : .closing

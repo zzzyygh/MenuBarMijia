@@ -4029,7 +4029,7 @@ describe("Mains breaker (#265)", () => {
 });
 
 describe("Windows curtain control (#279)", () => {
-  function cover(position: number, motion: "stopped" | "opening" | "closing" = "stopped"): SmartDevice {
+  function cover(position: number | null, motion: "stopped" | "opening" | "closing" = "stopped"): SmartDevice {
     return {
       id: "did_curtain",
       name: "客厅窗帘",
@@ -4130,6 +4130,34 @@ describe("Windows curtain control (#279)", () => {
       true,
     );
     assert.equal(kind.positionPercent, 40);
+    assert.equal(kind.motion, "stopped");
+    assert.notEqual(fake.replyBanner?.isError, true);
+  });
+
+  it("stops a moving curtain even when its position is unknown", async () => {
+    const device = cover(null, "opening");
+    const fake = coverHost(device);
+    const host = fake as unknown as MenuMijiaWindowsApp;
+    const kind = device.kind;
+    assert.equal(kind.kind, "cover");
+    if (kind.kind !== "cover") assert.fail("Expected cover");
+    assert.equal(kind.positionPercent, null);
+
+    const stop = IntentValidator.commandsForIntent(
+      { targetId: device.id, operation: { kind: "power", isOn: true } },
+      device,
+    )[0];
+    assert.deepEqual(stop, { kind: "setSelectOption", entityId: "miot:did_curtain:2", option: "Pause" });
+
+    await executeSingleCommand(
+      host,
+      device,
+      stop!,
+      "已停止客厅窗帘",
+      { targetId: device.id, operation: { kind: "power", isOn: true } },
+      true,
+    );
+    assert.equal(kind.positionPercent, null);
     assert.equal(kind.motion, "stopped");
     assert.notEqual(fake.replyBanner?.isError, true);
   });

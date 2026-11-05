@@ -27,16 +27,18 @@ struct CurtainDeviceTests {
 
     private func singleTrackHome(
         did: String = "curtain1",
-        position: Int = 42,
+        position: Int? = 42,
         status: Int = 0
     ) throws -> (SmartDevice, MiotDeviceSpec, MiDeviceRecord) {
         let spec = try spec(Self.singleModel)
         let record = MiDeviceRecord(did: did, name: "客厅窗帘", model: Self.singleModel, isOnline: true)
-        let values: [MiotPropKey: JSONValue] = [
-            .init(did: did, siid: 2, piid: 3): .number(Double(position)),
+        var values: [MiotPropKey: JSONValue] = [
             .init(did: did, siid: 2, piid: 6): .number(Double(status)),
-            .init(did: did, siid: 2, piid: 7): .number(Double(position)),
         ]
+        if let position {
+            values[.init(did: did, siid: 2, piid: 3)] = .number(Double(position))
+            values[.init(did: did, siid: 2, piid: 7)] = .number(Double(position))
+        }
         let home = MiotSynthesizer.synthesize(
             devices: [record], rooms: [], specs: [record.model: spec], values: values
         )
@@ -184,6 +186,23 @@ struct CurtainDeviceTests {
         #expect(await store.togglePrimary(card)?.value == true)
         #expect(await mock.executedCommands == [.setSelectOption(entityId: "miot:curtain1:2", option: "Pause")])
         #expect(store.devices.first?.coverPosition == 40)
+    }
+
+    @Test("Tapping a moving curtain with no position reading still stops it")
+    @MainActor
+    func tapStopsMovingCurtainWithoutPosition() async throws {
+        let (device, _, _) = try singleTrackHome(position: nil, status: 1)
+        guard case .cover(let cover) = device.kind else {
+            Issue.record("curtain was not synthesized as a cover")
+            return
+        }
+        #expect(cover.positionPercent == nil)
+        #expect(cover.isMoving)
+
+        let (store, mock) = try await makeStore([device])
+        #expect(await store.togglePrimary(try #require(store.devices.first))?.value == true)
+        #expect(await mock.executedCommands == [.setSelectOption(entityId: "miot:curtain1:2", option: "Pause")])
+        #expect(store.devices.first?.coverPosition == nil)
     }
 
     @Test("Tapping a closed curtain opens it and tapping an open one closes it")
