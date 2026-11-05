@@ -27,6 +27,7 @@ export interface MiotAction {
 export interface MiotService {
   readonly iid: number;
   readonly type: string;
+  readonly description?: string;
   readonly properties: readonly MiotProperty[];
   readonly actions: readonly MiotAction[];
 }
@@ -180,6 +181,7 @@ export function parseMiotDeviceSpec(raw: unknown): MiotDeviceSpec | null {
     services.push({
       iid: sIid,
       type: sType,
+      ...(typeof sObj["description"] === "string" ? { description: sObj["description"] } : {}),
       properties,
       actions,
     });

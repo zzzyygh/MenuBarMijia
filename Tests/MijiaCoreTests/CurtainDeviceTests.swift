@@ -244,6 +244,22 @@ struct CurtainDeviceTests {
         #expect(store.devices.first?.coverPosition == 37)
     }
 
+    @Test("Tapping a curtain after a slider move stops it instead of closing it")
+    @MainActor
+    func tapAfterSliderMoveStopsCurtain() async throws {
+        let (closed, _, _) = try singleTrackHome(position: 0, status: 0)
+        let (store, mock) = try await makeStore([closed])
+        let card = try #require(store.devices.first)
+
+        store.setCoverPosition(card.id, percent: 70)
+        await waitUntil { await mock.executedCommands == [.setNumberValue(entityId: "miot:curtain1:2", value: 70)] }
+
+        let moved = try #require(store.devices.first)
+        #expect(await store.togglePrimary(moved)?.value == true)
+        #expect(await mock.executedCommands.last == .setSelectOption(entityId: "miot:curtain1:2", option: "Pause"))
+        #expect(store.devices.first?.coverPosition == 70)
+    }
+
     @Test("A curtain card shows the position the device reports after a poll")
     @MainActor
     func curtainCardShowsReadBackPosition() async throws {

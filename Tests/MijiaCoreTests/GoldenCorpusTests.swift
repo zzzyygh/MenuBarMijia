@@ -43,6 +43,7 @@ struct GoldenCorpusTests {
         case vacuum(VacuumPayload)
         case camera(CameraPayload)
         case sensor(SensorPayload)
+        case cover(CoverPayload)
         private enum CodingKeys: String, CodingKey { case kind }
 
         struct LightPayload: Decodable {
@@ -146,6 +147,19 @@ struct GoldenCorpusTests {
             let statusText: String?
         }
 
+        struct CoverPayload: Decodable {
+            let entityId: String
+            let subtype: String
+            let positionPercent: Int?
+            let positionWritable: Bool
+            let openDescription: String?
+            let closeDescription: String?
+            let pauseDescription: String?
+            let batteryPercent: Int?
+            let faultText: String?
+            let motion: String
+        }
+
         init(from decoder: Decoder) throws {
             let container = try decoder.container(keyedBy: CodingKeys.self)
             let kind = try container.decode(String.self, forKey: .kind)
@@ -166,6 +180,8 @@ struct GoldenCorpusTests {
                 self = .camera(try CameraPayload(from: decoder))
             case "sensor":
                 self = .sensor(try SensorPayload(from: decoder))
+            case "cover":
+                self = .cover(try CoverPayload(from: decoder))
             default:
                 throw DecodingError.dataCorruptedError(
                     forKey: .kind,
@@ -294,6 +310,21 @@ struct GoldenCorpusTests {
                         statusText: p.statusText
                     )
                 )
+            case .cover(let p):
+                return .cover(
+                    CoverSpec(
+                        entityId: p.entityId,
+                        subtype: CoverSubtype(rawValue: p.subtype) ?? .windowOpener,
+                        positionPercent: p.positionPercent,
+                        positionWritable: p.positionWritable,
+                        openDescription: p.openDescription,
+                        closeDescription: p.closeDescription,
+                        pauseDescription: p.pauseDescription,
+                        batteryPercent: p.batteryPercent,
+                        faultText: p.faultText,
+                        motion: CoverMotion(rawValue: p.motion) ?? .stopped
+                    )
+                )
             }
         }
     }
@@ -384,6 +415,7 @@ struct GoldenCorpusTests {
         let values: [MiotValueEntry]
         let selectionCases: [MiotSelectionCase]
         let expectedKinds: [String: CorpusKind]
+        let expectedNames: [String: String]?
         let expectedEnvironmentReadings: [MiotReadingEntry]
         let expectedRequiredProps: [String: [MiotKeyEntry]]
         let commandCases: [MiotCommandCase]
@@ -704,6 +736,10 @@ struct GoldenCorpusTests {
         for (did, expectedKind) in corpus.expectedKinds {
             let dev = try #require(home.devices.first(where: { $0.id == did }), "Missing device \(did)")
             #expect(dev.kind == expectedKind.toDeviceKind(), "Mismatch on \(did)")
+        }
+        for (did, name) in corpus.expectedNames ?? [:] {
+            let dev = try #require(home.devices.first(where: { $0.id == did }), "Missing named device \(did)")
+            #expect(dev.name == name, "Name mismatch on \(did)")
         }
         #expect(home.environmentReadings == corpus.expectedEnvironmentReadings.map { $0.toEnvironmentReading() })
 

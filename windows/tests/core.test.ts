@@ -965,6 +965,7 @@ describe("MiotSynthesizer & MiotCommandMapper", () => {
       values: Array<{ did: string; siid: number; piid: number; value: unknown }>;
       selectionCases: Array<{ utterance: string; isOn: boolean; ids: string[] }>;
       expectedKinds: Record<string, unknown>;
+      expectedNames?: Record<string, string>;
       expectedEnvironmentReadings: Array<unknown>;
       expectedRequiredProps: Record<string, Array<{ did: string; siid: number; piid: number }>>;
       commandCases: Array<{
@@ -1004,6 +1005,11 @@ describe("MiotSynthesizer & MiotCommandMapper", () => {
       const dev = home.devices.find((d) => d.id === did);
       assert.ok(dev, `Missing synthesized device ${did}`);
       assert.deepEqual(dev.kind, expectedKind, `DeviceKind mismatch on ${did}`);
+    }
+    for (const [did, name] of Object.entries(corpus.expectedNames ?? {})) {
+      const dev = home.devices.find((d) => d.id === did);
+      assert.ok(dev, `Missing synthesized device ${did}`);
+      assert.equal(dev.name, name, `Device name mismatch on ${did}`);
     }
     assert.deepEqual(home.environmentReadings, corpus.expectedEnvironmentReadings);
     for (const item of corpus.selectionCases) {

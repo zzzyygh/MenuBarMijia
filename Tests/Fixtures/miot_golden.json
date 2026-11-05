@@ -1,5 +1,146 @@
 {
   "specs": {
+    "fixture.curtain.single": {
+      "type": "urn:miot-spec-v2:device:curtain:0000A00C:fixture-single:1",
+      "services": [
+        {
+          "iid": 2,
+          "type": "urn:miot-spec-v2:service:curtain:00007810:fixture-single:1",
+          "description": "Curtain",
+          "properties": [
+            {
+              "iid": 1,
+              "type": "urn:miot-spec-v2:property:motor-control:00000038:fixture-single:1",
+              "format": "uint8",
+              "access": ["write"],
+              "value-list": [
+                { "value": 0, "description": "Pause" },
+                { "value": 1, "description": "Open" },
+                { "value": 2, "description": "Close" }
+              ]
+            },
+            {
+              "iid": 3,
+              "type": "urn:miot-spec-v2:property:current-position:00000039:fixture-single:1",
+              "format": "uint8",
+              "access": ["read", "notify"],
+              "value-range": [0, 100, 1]
+            },
+            {
+              "iid": 6,
+              "type": "urn:miot-spec-v2:property:status:00000007:fixture-single:1",
+              "format": "uint8",
+              "access": ["read", "notify"],
+              "value-list": [
+                { "value": 0, "description": "Stopped" },
+                { "value": 1, "description": "Opening" },
+                { "value": 2, "description": "Closing" }
+              ]
+            },
+            {
+              "iid": 7,
+              "type": "urn:miot-spec-v2:property:target-position:0000003A:fixture-single:1",
+              "format": "uint8",
+              "access": ["read", "write", "notify"],
+              "value-range": [0, 100, 1]
+            }
+          ]
+        }
+      ]
+    },
+    "fixture.curtain.dual": {
+      "type": "urn:miot-spec-v2:device:curtain:0000A00C:fixture-dual:1",
+      "services": [
+        {
+          "iid": 2,
+          "type": "urn:miot-spec-v2:service:curtain:00007810:fixture-dual:1",
+          "description": "Drape Curtain",
+          "properties": [
+            {
+              "iid": 1,
+              "type": "urn:miot-spec-v2:property:motor-control:00000038:fixture-dual:1",
+              "format": "uint8",
+              "access": ["write"],
+              "value-list": [
+                { "value": 0, "description": "Open" },
+                { "value": 1, "description": "Close" },
+                { "value": 2, "description": "Pause" },
+                { "value": 3, "description": "Toggle" }
+              ]
+            },
+            {
+              "iid": 2,
+              "type": "urn:miot-spec-v2:property:status:00000007:fixture-dual:1",
+              "format": "uint8",
+              "access": ["read", "notify"],
+              "value-list": [
+                { "value": 0, "description": "Opening" },
+                { "value": 1, "description": "Closing" },
+                { "value": 2, "description": "Stop" }
+              ]
+            },
+            {
+              "iid": 3,
+              "type": "urn:miot-spec-v2:property:current-position:00000039:fixture-dual:1",
+              "format": "uint8",
+              "access": ["read", "notify"],
+              "value-range": [0, 100, 1]
+            },
+            {
+              "iid": 4,
+              "type": "urn:miot-spec-v2:property:target-position:0000003A:fixture-dual:1",
+              "format": "uint8",
+              "access": ["read", "write", "notify"],
+              "value-range": [0, 100, 1]
+            }
+          ]
+        },
+        {
+          "iid": 3,
+          "type": "urn:miot-spec-v2:service:curtain:00007810:fixture-dual:1",
+          "description": "Lace Curtain",
+          "properties": [
+            {
+              "iid": 1,
+              "type": "urn:miot-spec-v2:property:motor-control:00000038:fixture-dual:1",
+              "format": "uint8",
+              "access": ["write"],
+              "value-list": [
+                { "value": 0, "description": "Open" },
+                { "value": 1, "description": "Close" },
+                { "value": 2, "description": "Pause" },
+                { "value": 3, "description": "Toggle" }
+              ]
+            },
+            {
+              "iid": 2,
+              "type": "urn:miot-spec-v2:property:status:00000007:fixture-dual:1",
+              "format": "uint8",
+              "access": ["read", "notify"],
+              "value-list": [
+                { "value": 0, "description": "Opening" },
+                { "value": 1, "description": "Closing" },
+                { "value": 2, "description": "Stop" }
+              ]
+            },
+            {
+              "iid": 3,
+              "type": "urn:miot-spec-v2:property:current-position:00000039:fixture-dual:1",
+              "format": "uint8",
+              "access": ["read", "notify"],
+              "value-range": [0, 100, 1]
+            },
+            {
+              "iid": 4,
+              "type": "urn:miot-spec-v2:property:target-position:0000003A:fixture-dual:1",
+              "format": "uint8",
+              "access": ["read", "write", "notify"],
+              "value-range": [0, 100, 1]
+            }
+          ]
+        }
+      ]
+    },
     "yeelink.light.ceiling22": {
       "type": "urn:miot-spec-v2:device:light:0000A001:yeelink-ceiling22:1",
       "services": [
@@ -2856,6 +2997,18 @@
       "model": "golden.valve.water",
       "name": "进水阀",
       "isOnline": true
+    },
+    {
+      "did": "did_curtain",
+      "name": "客厅窗帘",
+      "model": "fixture.curtain.single",
+      "isOnline": true
+    },
+    {
+      "did": "did_curtain_dual",
+      "name": "卧室窗帘",
+      "model": "fixture.curtain.dual",
+      "isOnline": true
     }
   ],
   "rooms": [
@@ -3064,7 +3217,16 @@
     { "did": "did_breaker", "siid": 3, "piid": 1, "value": 123456 },
     { "did": "did_breaker", "siid": 3, "piid": 6, "value": 1830 },
     { "did": "did_breaker", "siid": 5, "piid": 2, "value": true },
-    { "did": "did_water_valve", "siid": 2, "piid": 1, "value": true }
+    { "did": "did_water_valve", "siid": 2, "piid": 1, "value": true },
+    { "did": "did_curtain", "siid": 2, "piid": 3, "value": 42 },
+    { "did": "did_curtain", "siid": 2, "piid": 6, "value": 0 },
+    { "did": "did_curtain", "siid": 2, "piid": 7, "value": 42 },
+    { "did": "did_curtain_dual", "siid": 2, "piid": 2, "value": 2 },
+    { "did": "did_curtain_dual", "siid": 2, "piid": 3, "value": 20 },
+    { "did": "did_curtain_dual", "siid": 2, "piid": 4, "value": 20 },
+    { "did": "did_curtain_dual", "siid": 3, "piid": 2, "value": 2 },
+    { "did": "did_curtain_dual", "siid": 3, "piid": 3, "value": 90 },
+    { "did": "did_curtain_dual", "siid": 3, "piid": 4, "value": 90 }
   ],
   "expectedKinds": {
     "did_light": {
@@ -3320,6 +3482,45 @@
       "isChildLocked": false,
       "powerWritable": false,
       "countsInTotalPower": false
+    },
+    "did_curtain": {
+      "kind": "cover",
+      "entityId": "miot:did_curtain:2",
+      "subtype": "curtain",
+      "positionPercent": 42,
+      "positionWritable": true,
+      "openDescription": "Open",
+      "closeDescription": "Close",
+      "pauseDescription": "Pause",
+      "batteryPercent": null,
+      "faultText": null,
+      "motion": "stopped"
+    },
+    "did_curtain_dual.s2": {
+      "kind": "cover",
+      "entityId": "miot:did_curtain_dual:2",
+      "subtype": "curtain",
+      "positionPercent": 20,
+      "positionWritable": true,
+      "openDescription": "Open",
+      "closeDescription": "Close",
+      "pauseDescription": "Pause",
+      "batteryPercent": null,
+      "faultText": null,
+      "motion": "stopped"
+    },
+    "did_curtain_dual.s3": {
+      "kind": "cover",
+      "entityId": "miot:did_curtain_dual:3",
+      "subtype": "curtain",
+      "positionPercent": 90,
+      "positionWritable": true,
+      "openDescription": "Open",
+      "closeDescription": "Close",
+      "pauseDescription": "Pause",
+      "batteryPercent": null,
+      "faultText": null,
+      "motion": "stopped"
     }
   },
   "expectedEnvironmentReadings": [
@@ -3576,7 +3777,25 @@
       { "did": "did_breaker", "siid": 2, "piid": 3 },
       { "did": "did_breaker", "siid": 3, "piid": 6 }
     ],
-    "did_water_valve": []
+    "did_water_valve": [],
+    "did_curtain": [
+      { "did": "did_curtain", "siid": 2, "piid": 3 },
+      { "did": "did_curtain", "siid": 2, "piid": 7 },
+      { "did": "did_curtain", "siid": 2, "piid": 6 }
+    ],
+    "did_curtain_dual": [
+      { "did": "did_curtain_dual", "siid": 2, "piid": 3 },
+      { "did": "did_curtain_dual", "siid": 2, "piid": 4 },
+      { "did": "did_curtain_dual", "siid": 2, "piid": 2 },
+      { "did": "did_curtain_dual", "siid": 3, "piid": 3 },
+      { "did": "did_curtain_dual", "siid": 3, "piid": 4 },
+      { "did": "did_curtain_dual", "siid": 3, "piid": 2 }
+    ]
+  },
+  "expectedNames": {
+    "did_curtain": "客厅窗帘",
+    "did_curtain_dual.s2": "布帘",
+    "did_curtain_dual.s3": "纱帘"
   },
   "commandCases": [
     {

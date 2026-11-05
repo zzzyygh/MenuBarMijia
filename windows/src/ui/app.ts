@@ -190,6 +190,7 @@ export class MenuMijiaWindowsApp {
       case "fridge":
       case "camera":
       case "sensor":
+      case "cover":
         return value;
       default:
         return null;

@@ -416,6 +416,8 @@ function devicePaletteClass(dev: SmartDevice): string {
       return "palette-blue";
     case "sensor":
       return "palette-teal";
+    case "cover":
+      return "palette-teal";
   }
 }
 
@@ -435,6 +437,8 @@ function deviceSvgIcon(dev: SmartDevice): string {
     case "camera":
       return SF_ICONS.videoFill;
     case "sensor":
+      return SF_ICONS.sensorFill;
+    case "cover":
       return SF_ICONS.sensorFill;
   }
 }

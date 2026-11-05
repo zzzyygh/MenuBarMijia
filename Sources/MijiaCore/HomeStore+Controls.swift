@@ -516,7 +516,13 @@ extension HomeStore {
               case .cover(var s) = devices[idx].kind, s.positionWritable else { return }
         let previous = devices[idx]
         let clamped = max(0, min(100, percent))
+        let previousPosition = s.positionPercent ?? clamped
         s.positionPercent = clamped
+        if clamped > previousPosition {
+            s.motion = .opening
+        } else if clamped < previousPosition {
+            s.motion = .closing
+        }
         devices[idx].kind = .cover(s)
         lockOptimistic(deviceId, duration: .seconds(8))
         dispatchDebounced(

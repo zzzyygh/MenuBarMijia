@@ -84,6 +84,11 @@ const CATALOG: Readonly<Record<string, readonly [string, string]>> = {
 
   // Device states
   "已关闭": ["已关闭", "Off"],
+  "已关上": ["已关上", "Closed"],
+  "已打开": ["已打开", "Open"],
+  "可控制": ["可控制", "Ready"],
+  "开 {percent}%": ["开 {percent}%", "Open {percent}%"],
+  "门窗": ["门窗", "Windows"],
   "已开启": ["已开启", "On"],
   "等待中": ["等待中", "Waiting"],
   "可能过期": ["可能过期", "Possibly stale"],

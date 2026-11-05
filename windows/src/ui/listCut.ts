@@ -16,6 +16,7 @@ export const KIND_RANK: Record<DeviceKindTag, number> = {
   fridge: 5,
   camera: 6,
   sensor: 7,
+  cover: 8,
 };
 
 export const KIND_CHIP: Record<
@@ -30,6 +31,7 @@ export const KIND_CHIP: Record<
   fridge: { title: "冰箱" },
   camera: { title: "摄像机" },
   sensor: { title: "传感器", hint: "也包括没有开关的小家电" },
+  cover: { title: "门窗" },
 };
 
 function visible(devices: readonly SmartDevice[], hideOffline: boolean): SmartDevice[] {

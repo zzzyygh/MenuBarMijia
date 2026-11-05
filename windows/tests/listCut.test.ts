@@ -150,7 +150,7 @@ describe("device list cut", () => {
   it("uses catalog keys for every chip title and hint", () => {
     assert.deepEqual(
       Object.entries(KIND_RANK).sort((a, b) => a[1] - b[1]).map(([tag]) => tag),
-      ["climate", "light", "plug", "fan", "vacuum", "fridge", "camera", "sensor"],
+      ["climate", "light", "plug", "fan", "vacuum", "fridge", "camera", "sensor", "cover"],
     );
     assert.equal(KIND_CHIP.light.title, "灯");
     assert.equal(KIND_CHIP.climate.title, "空调");
@@ -164,6 +164,7 @@ describe("device list cut", () => {
     assert.equal(KIND_CHIP.camera.title, "摄像机");
     assert.equal(KIND_CHIP.sensor.title, "传感器");
     assert.equal(KIND_CHIP.sensor.hint, "也包括没有开关的小家电");
+    assert.equal(KIND_CHIP.cover.title, "门窗");
     assert.equal(KIND_CHIP.light.hint, undefined);
     for (const chip of Object.values(KIND_CHIP)) {
       assert.ok(catalogEntry(chip.title), chip.title);

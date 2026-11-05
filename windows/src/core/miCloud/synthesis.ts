@@ -24,6 +24,7 @@ import {
   type MiotDeviceSpec,
   type MiotProperty,
   type MiotService,
+  type MiotValueListItem,
 } from "./spec.js";
 
 export function exposesWrite(access: readonly string[] | undefined): boolean {
@@ -42,6 +43,64 @@ export function miotBool(val: unknown): boolean | null {
   if (typeof val === "boolean") return val;
   if (typeof val === "number") return val !== 0;
   return null;
+}
+
+interface MiotBuildPlan {
+  readonly id: string;
+  readonly name: string;
+  readonly spec: MiotDeviceSpec;
+}
+
+/** 0 closed … 100 open, scaled the way macOS `MiotSynthesizer.percent` does. */
+function coverPercent(raw: number, prop: MiotProperty): number {
+  const max = prop.valueRange?.[1];
+  const scaled = max !== undefined && max > 0 && max !== 100 ? (raw / max) * 100 : raw;
+  return Math.max(0, Math.min(100, Math.round(scaled)));
+}
+
+/** Exact motor value-list words only, matching macOS `coverMotorDescription`. */
+function coverMotorDescription(
+  items: readonly MiotValueListItem[],
+  word: "open" | "close" | "pause",
+): string | null {
+  const aliases =
+    word === "open" ? ["open", "打开"] : word === "close" ? ["close", "关闭"] : ["pause", "stop", "暂停"];
+  return items.find((item) => aliases.includes(item.description.trim().toLowerCase()))?.description ?? null;
+}
+
+/** Only a status that names travel counts as moving; "Open"/"Close" are end states on some specs. */
+function coverMotion(description: string | null | undefined): "stopped" | "opening" | "closing" {
+  switch ((description ?? "").trim().toLowerCase()) {
+    case "opening":
+    case "打开中":
+      return "opening";
+    case "closing":
+    case "关闭中":
+      return "closing";
+    default:
+      return "stopped";
+  }
+}
+
+/** A track card takes its service description, localized like macOS `trackName`. */
+function curtainTrackName(description: string | undefined, fallback: string): string {
+  const value = (description ?? "").trim();
+  switch (value.toLowerCase()) {
+    case "drape curtain":
+      return "布帘";
+    case "lace curtain":
+      return "纱帘";
+    case "left curtain":
+      return "左帘";
+    case "right curtain":
+      return "右帘";
+    case "curtain":
+      return "窗帘";
+    case "":
+      return fallback;
+    default:
+      return value;
+  }
 }
 
 export function hasScaleToken(comment: string, token: string): boolean {
@@ -185,6 +244,7 @@ export function primaryMiotService(spec: MiotDeviceSpec): MiotService | undefine
     "humidifier",
     "video-doorbell",
     "vacuum",
+    "curtain",
     "fridge",
     "camera-control",
     "outlet",
@@ -254,6 +314,32 @@ export function primaryMiotService(spec: MiotDeviceSpec): MiotService | undefine
 }
 
 export const MiotSynthesizer = {
+  /**
+   * The cards a record produces: normally one. A dual-track curtain motor publishes two
+   * `curtain` services and gets one card per track, matching the macOS split.
+   */
+  buildPlans(record: MiDeviceRecord, spec: MiotDeviceSpec): MiotBuildPlan[] {
+    const scoped = specForRecord(record, spec);
+    const tracks =
+      !record.splitParentDid && miotShortName(spec.type) === "curtain"
+        ? scoped.services.filter(
+            (service) =>
+              miotShortName(service.type) === "curtain" &&
+              service.properties.some((p) =>
+                ["motor-control", "current-position", "target-position"].includes(miotShortName(p.type)),
+              ),
+          )
+        : [];
+    if (tracks.length > 1) {
+      return tracks.map((service) => ({
+        id: `${record.did}.s${service.iid}`,
+        name: curtainTrackName(service.description, record.name),
+        spec: { type: scoped.type, services: [service] },
+      }));
+    }
+    return [{ id: record.did, name: record.name, spec: scoped }];
+  },
+
   synthesize(
     devices: readonly MiDeviceRecord[],
     rooms: readonly MiRoom[],
@@ -279,36 +365,36 @@ export const MiotSynthesizer = {
       // device (macOS parity). The offline fallback spec applies only when no real spec
       // was fetched at all; re-falling back here would re-admit devices the guard rejected.
       const spec = specs[record.model] ?? inferFallbackSpec(record);
-      const built = record.splitParentDid
-        ? this.buildDeviceKind(miotDid(record), specForRecord(record, spec), values)
-        : this.buildDeviceKind(record.did, spec, values);
-      if (!built) continue;
-
       const room =
         roomByDid.get(record.did) ??
         (record.splitParentDid ? roomByDid.get(record.splitParentDid) : undefined);
       const roomName = room?.name.trim() || "全屋";
       const roomId = room ? `room_${room.id}` : "other";
 
-      const kind =
-        record.isOnline || built.kind !== "sensor" || !built.statusText || !AFFIRMATIVE_LOCK_STATUS.has(built.statusText)
-          ? built
-          : { ...built, statusText: "锁状态未知" };
-      const smartDevice: SmartDevice = {
-        id: record.did,
-        name: record.name,
-        roomId,
-        roomName,
-        model: record.model,
-        isOnline: record.isOnline,
-        kind,
-        ...(room?.isSharedHome === true ? { isSharedHome: true } : {}),
-      };
-      smartDevices.push(smartDevice);
+      for (const plan of this.buildPlans(record, spec)) {
+        const built = this.buildDeviceKind(miotDid(record), plan.spec, values);
+        if (!built) continue;
 
-      const reading = deviceEnvironmentReading(smartDevice);
-      if (reading) {
-        readings.push(reading);
+        const kind =
+          record.isOnline || built.kind !== "sensor" || !built.statusText || !AFFIRMATIVE_LOCK_STATUS.has(built.statusText)
+            ? built
+            : { ...built, statusText: "锁状态未知" };
+        const smartDevice: SmartDevice = {
+          id: plan.id,
+          name: plan.name,
+          roomId,
+          roomName,
+          model: record.model,
+          isOnline: record.isOnline,
+          kind,
+          ...(room?.isSharedHome === true ? { isSharedHome: true } : {}),
+        };
+        smartDevices.push(smartDevice);
+
+        const reading = deviceEnvironmentReading(smartDevice);
+        if (reading) {
+          readings.push(reading);
+        }
       }
     }
 
@@ -380,7 +466,9 @@ export const MiotSynthesizer = {
         return Reflect.get(target, prop);
       },
     });
-    this.buildDeviceKind(miotDid(device), specForRecord(device, spec), proxyValues);
+    for (const plan of this.buildPlans(device, spec)) {
+      this.buildDeviceKind(miotDid(device), plan.spec, proxyValues);
+    }
     return touched;
   },
 
@@ -720,6 +808,47 @@ export const MiotSynthesizer = {
             ),
           ),
         }),
+      };
+    }
+
+    if (sName === "curtain") {
+      const current = readProp(primaryService, "current-position");
+      const target = readProp(primaryService, "target-position");
+      const status = readProp(primaryService, "status");
+      const fault = readProp(primaryService, "device-fault");
+      const battery = readFirst(
+        spec.services.filter((s) => miotShortName(s.type) === "battery"),
+        "battery-level",
+      );
+      const motor = primaryService.properties.find(
+        (p) => miotShortName(p.type) === "motor-control" && p.access.includes("write"),
+      );
+      const items = motor?.valueList ?? [];
+      const positionSource = current ?? target;
+      const statusCode = typeof status?.val === "number" ? Math.trunc(status.val) : null;
+      const statusDescription =
+        statusCode !== null
+          ? (status?.prop.valueList?.find((i) => i.value === statusCode)?.description ?? null)
+          : null;
+      const faultCode = typeof fault?.val === "number" ? Math.trunc(fault.val) : null;
+      return {
+        kind: "cover",
+        entityId: makeMiotAddress(did, primaryService.iid),
+        subtype: "curtain",
+        positionPercent:
+          positionSource && typeof positionSource.val === "number"
+            ? coverPercent(positionSource.val, positionSource.prop)
+            : null,
+        positionWritable: exposesWrite(target?.prop.access),
+        openDescription: coverMotorDescription(items, "open"),
+        closeDescription: coverMotorDescription(items, "close"),
+        pauseDescription: coverMotorDescription(items, "pause"),
+        batteryPercent: typeof battery?.val === "number" ? Math.trunc(battery.val) : null,
+        faultText:
+          faultCode !== null && faultCode !== 0
+            ? (fault?.prop.valueList?.find((i) => i.value === faultCode)?.description ?? String(faultCode))
+            : null,
+        motion: coverMotion(statusDescription),
       };
     }
 

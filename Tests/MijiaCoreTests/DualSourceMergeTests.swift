@@ -328,6 +328,50 @@ struct DualSourceMergeTests {
         #expect(result.routes[device.id]?.backend == .homeAssistant)
     }
 
+    @Test("A gateway MAC shared by two distinct Mi devices keeps the HA card")
+    func sharedGatewayMacAcrossDistinctMiDevicesKeepsHACard() throws {
+        let haLight = makeLight(id: "ha-entry-light", name: "玄关灯", roomId: "entry", roomName: "玄关")
+        let miHallway = makeLight(id: "111222333", name: "走廊灯", roomId: "hall", roomName: "走廊", model: "xiaomi.light.a")
+        let miBalcony = makeLight(id: "444555666", name: "阳台灯", roomId: "balcony", roomName: "阳台", model: "xiaomi.light.b")
+        let sharedMAC = "AA-BB-CC-DD-EE-FF"
+
+        let result = DeviceDeduplicator.merge(
+            homeAssistant: makeHome(
+                devices: [haLight],
+                identities: [haLight.id: makeIdentity(
+                    macs: [sharedMAC],
+                    model: haLight.model,
+                    name: haLight.name,
+                    roomName: haLight.roomName,
+                    kind: .light
+                )]
+            ),
+            xiaomiCloud: makeHome(
+                devices: [miHallway, miBalcony],
+                identities: [
+                    miHallway.id: makeIdentity(
+                        dids: [miHallway.id],
+                        macs: [sharedMAC],
+                        model: miHallway.model,
+                        name: miHallway.name,
+                        roomName: miHallway.roomName,
+                        kind: .light
+                    ),
+                    miBalcony.id: makeIdentity(
+                        dids: [miBalcony.id],
+                        macs: [sharedMAC],
+                        model: miBalcony.model,
+                        name: miBalcony.name,
+                        roomName: miBalcony.roomName,
+                        kind: .light
+                    ),
+                ]
+            )
+        )
+
+        #expect(Set(result.home.devices.map(\.id)) == [haLight.id, miHallway.id, miBalcony.id])
+    }
+
     @Test("A Home Assistant entity unique id derived did pairs with a bare Mi did")
     func entityUniqueIDDerivedDIDPairsWithBareDID() throws {
         let haLight = makeLight(id: "ha-entry-light", name: "玄关灯", roomId: "entryway", roomName: "玄关")

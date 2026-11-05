@@ -120,6 +120,20 @@ export interface SensorSpec {
   readonly statusText?: string | null;
 }
 
+export interface CoverSpec {
+  readonly kind: "cover";
+  readonly entityId: string;
+  readonly subtype: "curtain" | "window-opener" | "garage-door" | "clothes-airer";
+  readonly positionPercent: number | null;
+  readonly positionWritable: boolean;
+  readonly openDescription: string | null;
+  readonly closeDescription: string | null;
+  readonly pauseDescription: string | null;
+  readonly batteryPercent: number | null;
+  readonly faultText: string | null;
+  readonly motion: "stopped" | "opening" | "closing";
+}
+
 export type DeviceKind =
   | LightSpec
   | ClimateSpec
@@ -128,7 +142,8 @@ export type DeviceKind =
   | FridgeSpec
   | VacuumSpec
   | CameraSpec
-  | SensorSpec;
+  | SensorSpec
+  | CoverSpec;
 export interface SmartDevice {
   readonly id: string;
   readonly name: string;
@@ -241,6 +256,8 @@ export function deviceCanTogglePower(device: SmartDevice): boolean {
       return kind.powerWritable !== false;
     case "vacuum":
       return kind.actionsWritable !== false;
+    case "cover":
+      return kind.openDescription !== null && kind.closeDescription !== null;
     case "fridge":
     case "sensor":
       return false;
@@ -281,6 +298,8 @@ export function deviceAcceptsControlWrites(device: SmartDevice): boolean {
       return kind.powerWritable !== false || kind.availableNightShots.length > 0 || kind.motionDetectionEntityId !== null;
     case "vacuum":
       return kind.actionsWritable !== false;
+    case "cover":
+      return (kind.openDescription !== null && kind.closeDescription !== null) || kind.positionWritable;
     case "fridge":
       return kind.modeEntityId !== null || kind.fridgeTargetEntityId !== null || kind.freezerTargetEntityId !== null;
     case "sensor":
@@ -297,7 +316,8 @@ export function joinsAllOffByDefault(device: SmartDevice): boolean {
     device.kind.kind !== "plug" &&
     device.kind.kind !== "fridge" &&
     device.kind.kind !== "vacuum" &&
-    device.kind.kind !== "camera"
+    device.kind.kind !== "camera" &&
+    device.kind.kind !== "cover"
   );
 }
 
@@ -353,6 +373,8 @@ export function isDeviceActiveOn(device: SmartDevice): boolean {
       return device.kind.isOn;
     case "vacuum":
       return device.kind.status === "cleaning";
+    case "cover":
+      return (device.kind.positionPercent ?? 0) > 0;
     case "fridge":
     case "sensor":
       return false;
@@ -660,6 +682,13 @@ export function deviceStatusSummary(device: SmartDevice): string {
         return k.battery !== null ? `${label} · ${t("电量")} ${k.battery}%` : label;
       }
       return t("在线");
+    }
+    case "cover": {
+      if (k.faultText) return k.faultText;
+      if (k.positionPercent === null) return t("可控制");
+      if (k.positionPercent <= 0) return t("已关上");
+      if (k.positionPercent >= 100) return t("已打开");
+      return t("开 {percent}%", { percent: k.positionPercent });
     }
     default: {
       const _exhaustive: never = k;

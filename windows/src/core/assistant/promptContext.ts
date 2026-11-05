@@ -87,6 +87,7 @@ export function assistantDeviceCategory(device: SmartDevice): string | null {
       return isAirPurifierDevice(device) ? "airPurifier" : "fan";
     case "fridge":
     case "sensor":
+    case "cover":
       return null;
   }
 }
@@ -138,6 +139,8 @@ export function catalogStateSummary(device: SmartDevice): string {
     case "fridge":
     case "sensor":
       return "";
+    case "cover":
+      return kind.positionPercent === null ? "" : `开${kind.positionPercent}%`;
   }
 }
 
