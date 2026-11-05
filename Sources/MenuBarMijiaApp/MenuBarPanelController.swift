@@ -92,6 +92,9 @@ final class MenuBarPanelController: NSObject {
     private var pressAllowsToggle = true
     private var suppressReleaseUntil: TimeInterval = 0
     private var suppressContextMenuUntil: TimeInterval = 0
+    /// A context menu waiting for the out-of-process menu bar to finish its own handling of the
+    /// same secondary click (see `requestStatusContextMenu`).
+    private var pendingContextMenu: DispatchWorkItem?
     private var contextMenuDismissalEventNumber: Int?
     private var acceptsStandalonePostMenuMouseUp = false
     /// What the status button currently shows; kept after a sync so diagnostics and tests can read it.
@@ -341,7 +344,53 @@ final class MenuBarPanelController: NSObject {
         return menu
     }
 
+    /// How long to wait after a secondary click before opening the menu on an out-of-process menu
+    /// bar host (macOS 26+). The host follows the click with its own secondary action, which runs
+    /// "select item / end expanded interface session" on the status item; a menu already attached
+    /// at that moment is force-closed about 0.25 s after it appears. `native` is the short settle
+    /// after that action reached us; `fallback` covers a host that never sends it.
+    enum ContextMenuSettle {
+        static let native: TimeInterval = 0.08
+        static let fallback: TimeInterval = 0.3
+    }
+
+    /// The menu bar runs in another process when the status item takes `setLongPressAction:`.
+    private var hostsStatusItemOutOfProcess: Bool {
+        statusItem?.responds(to: NSSelectorFromString("setLongPressAction:")) == true
+    }
+
+    /// Opens the context menu now, or after `settle` on an out-of-process host. Repeated requests
+    /// for the same click replace the pending one, so the menu opens once, after the last signal.
+    private func requestStatusContextMenu(settle: TimeInterval) {
+        guard hostsStatusItemOutOfProcess, statusContextMenuPresenter == nil else {
+            showStatusContextMenu()
+            return
+        }
+        guard ProcessInfo.processInfo.systemUptime >= suppressContextMenuUntil, !pressTriggered else {
+            restoreStatusItemHighlight()
+            return
+        }
+        // The host may follow the secondary click with a synthetic primary pair; it must not
+        // toggle the panel while the menu is still on its way.
+        // Bounded, so a request that ends up not presenting can never strand primary clicks.
+        pressAllowsToggle = false
+        suppressReleaseUntil = max(suppressReleaseUntil, ProcessInfo.processInfo.systemUptime + settle + 0.1)
+        setStatusItemHighlighted(true)
+        pendingContextMenu?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.pendingContextMenu = nil
+                self.showStatusContextMenu()
+            }
+        }
+        pendingContextMenu = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + settle, execute: work)
+    }
+
     private func showStatusContextMenu() {
+        pendingContextMenu?.cancel()
+        pendingContextMenu = nil
         let now = ProcessInfo.processInfo.systemUptime
         guard now >= suppressContextMenuUntil else {
             restoreStatusItemHighlight()
@@ -749,7 +798,7 @@ final class MenuBarPanelController: NSObject {
             setStatusItemHighlighted(true)
             beginPress()
         case .rightMouseDown?:
-            showStatusContextMenu()
+            requestStatusContextMenu(settle: ContextMenuSettle.fallback)
         case .rightMouseUp?:
             restoreStatusItemHighlight()
             return
@@ -805,7 +854,7 @@ final class MenuBarPanelController: NSObject {
         pressedMouseButtons: Int
     ) {
         if eventType == .rightMouseDown || (pressedMouseButtons & 0x2) != 0 {
-            showStatusContextMenu()
+            requestStatusContextMenu(settle: ContextMenuSettle.native)
             return
         }
 
@@ -1120,7 +1169,7 @@ final class MenuBarPanelController: NSObject {
                 eventType: eventType
             ) {
                 if eventType == .rightMouseDown {
-                    showStatusContextMenu()
+                    requestStatusContextMenu(settle: ContextMenuSettle.fallback)
                 } else if eventType == .leftMouseDown, (pressedMouseButtons & 0x1) != 0 {
                     // The 6 pt tolerance serves hold tracking. A post-menu click must land on the
                     // button itself, or a neighboring status item could toggle this panel.
