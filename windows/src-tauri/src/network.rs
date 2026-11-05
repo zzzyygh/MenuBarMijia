@@ -237,17 +237,33 @@ fn service_origin(raw: &str) -> Result<Option<String>, String> {
         .ok_or_else(|| format!("invalid configured endpoint: {raw}"))
 }
 
+#[derive(Debug, Default)]
+pub(crate) struct ServiceOrigins {
+    /// Origin paired with whether its confirmation dialog needs the plaintext warning.
+    pub(crate) origins: HashMap<String, bool>,
+    /// A public plaintext AI origin refused before confirmation.
+    pub(crate) rejected_assistant: Option<String>,
+}
+
+impl ServiceOrigins {
+    fn rejection(&self) -> Option<String> {
+        self.rejected_assistant
+            .as_deref()
+            .map(|origin| format!("AI 服务地址必须使用 https 或局域网地址：{origin}"))
+    }
+}
+
 /// Configured origins paired with whether their dialog needs a plaintext warning.
 ///
-/// A public plaintext AI endpoint is refused here, before any dialog, so the existing
-/// key-transport rule holds on the native side too.
+/// A public plaintext AI endpoint is left out and remembered for rejection, so an
+/// independently valid Home Assistant origin can still be authorized in the same save.
 pub(crate) fn requested_service_origins(
     assistant_url: &str,
     ha_url: &str,
     assistant_is_local_network: bool,
     ha_is_local_network: bool,
-) -> Result<Vec<(String, bool)>, String> {
-    let mut origins: HashMap<String, bool> = HashMap::new();
+) -> Result<ServiceOrigins, String> {
+    let mut requested = ServiceOrigins::default();
     for (raw, is_local_network, is_assistant) in [
         (assistant_url, assistant_is_local_network, true),
         (ha_url, ha_is_local_network, false),
@@ -257,14 +273,16 @@ pub(crate) fn requested_service_origins(
         };
         let plaintext_warning = origin.starts_with("http://") && !is_local_network;
         if is_assistant && plaintext_warning {
-            return Err(format!("AI 服务地址必须使用 https 或局域网地址：{origin}"));
+            requested.rejected_assistant = Some(origin);
+            continue;
         }
-        origins
+        requested
+            .origins
             .entry(origin)
             .and_modify(|warning| *warning |= plaintext_warning)
             .or_insert(plaintext_warning);
     }
-    Ok(origins.into_iter().collect())
+    Ok(requested)
 }
 
 pub(crate) fn read_origin_store(path: &std::path::Path) -> HashSet<String> {
@@ -318,13 +336,33 @@ pub(crate) fn store_authorized(origins: &HashSet<String>) -> Result<(), String> 
     Ok(())
 }
 
+fn confirm_novel_origins(
+    current: &HashSet<String>,
+    requested: &ServiceOrigins,
+    mut confirm: impl FnMut(&str, bool) -> bool,
+) -> Result<HashSet<String>, String> {
+    let mut novel: Vec<(&String, bool)> = requested
+        .origins
+        .iter()
+        .filter(|(origin, _)| !current.contains(*origin))
+        .map(|(origin, warning)| (origin, *warning))
+        .collect();
+    novel.sort_by(|left, right| left.0.cmp(right.0));
+    for (origin, plaintext_warning) in novel {
+        if !confirm(origin, plaintext_warning) {
+            return Err(format!("未授权的网络来源：{origin}"));
+        }
+    }
+    Ok(requested.origins.keys().cloned().collect())
+}
+
 pub(crate) fn decide_service_origins(
     current: &HashSet<String>,
     assistant_url: &str,
     ha_url: &str,
     assistant_is_local_network: bool,
     ha_is_local_network: bool,
-    mut confirm: impl FnMut(&str, bool) -> bool,
+    confirm: impl FnMut(&str, bool) -> bool,
 ) -> Result<HashSet<String>, String> {
     let requested = requested_service_origins(
         assistant_url,
@@ -332,17 +370,11 @@ pub(crate) fn decide_service_origins(
         assistant_is_local_network,
         ha_is_local_network,
     )?;
-    let mut novel: Vec<&(String, bool)> = requested
-        .iter()
-        .filter(|(origin, _)| !current.contains(origin))
-        .collect();
-    novel.sort_by(|left, right| left.0.cmp(&right.0));
-    for (origin, plaintext_warning) in novel {
-        if !confirm(origin, *plaintext_warning) {
-            return Err(format!("未授权的网络来源：{origin}"));
-        }
+    let authorized = confirm_novel_origins(current, &requested, confirm)?;
+    if let Some(message) = requested.rejection() {
+        return Err(message);
     }
-    Ok(requested.into_iter().map(|(origin, _)| origin).collect())
+    Ok(authorized)
 }
 
 pub(crate) fn authorize_service_endpoints(
@@ -353,26 +385,29 @@ pub(crate) fn authorize_service_endpoints(
     confirm: impl FnMut(&str, bool) -> bool,
 ) -> Result<(), String> {
     let current = allowed_origins_snapshot()?;
-    let next = decide_service_origins(
-        &current,
+    let requested = requested_service_origins(
         assistant_url,
         ha_url,
         assistant_is_local_network,
         ha_is_local_network,
-        confirm,
     )?;
-    store_authorized(&next)
+    let next = confirm_novel_origins(&current, &requested, confirm)?;
+    store_authorized(&next)?;
+    if let Some(message) = requested.rejection() {
+        return Err(message);
+    }
+    Ok(())
 }
 
 /// Shown when a plain-http origin outside the local network would carry a token or key (#277).
 pub(crate) const PLAINTEXT_WARNING: &str =
     "警告：这个地址使用明文 http，Home Assistant 令牌和 AI API Key 会以明文在网络上传输。";
 
-pub(crate) fn confirmation_message(origin: &str, is_local_network: bool) -> String {
+pub(crate) fn confirmation_message(origin: &str, plaintext_warning: bool) -> String {
     let mut text = format!(
         "允许 MenuBarMijia 连接这个地址吗？\n\n{origin}\n\n只有你在设置里填写的 Home Assistant 或 AI 服务地址才应该出现在这里。"
     );
-    if origin.starts_with("http://") && !is_local_network {
+    if plaintext_warning {
         text.push_str("\n\n");
         text.push_str(PLAINTEXT_WARNING);
     }
@@ -380,15 +415,15 @@ pub(crate) fn confirmation_message(origin: &str, is_local_network: bool) -> Stri
 }
 
 #[cfg(test)]
-pub(crate) fn user_confirms_origin(_origin: &str, _is_local_network: bool) -> bool {
+pub(crate) fn user_confirms_origin(_origin: &str, _plaintext_warning: bool) -> bool {
     false
 }
 
 #[cfg(all(windows, not(test)))]
-pub(crate) fn user_confirms_origin(origin: &str, is_local_network: bool) -> bool {
+pub(crate) fn user_confirms_origin(origin: &str, plaintext_warning: bool) -> bool {
     use std::ffi::OsStr;
     use std::os::windows::ffi::OsStrExt;
-    let text = confirmation_message(origin, is_local_network);
+    let text = confirmation_message(origin, plaintext_warning);
     let text_wide: Vec<u16> = OsStr::new(&text).encode_wide().chain(std::iter::once(0)).collect();
     let title_wide: Vec<u16> = OsStr::new("MenuBarMijia").encode_wide().chain(std::iter::once(0)).collect();
     #[link(name = "user32")]
@@ -415,7 +450,7 @@ pub(crate) fn user_confirms_origin(origin: &str, is_local_network: bool) -> bool
 }
 
 #[cfg(all(not(windows), not(test)))]
-pub(crate) fn user_confirms_origin(_origin: &str, _is_local_network: bool) -> bool {
+pub(crate) fn user_confirms_origin(_origin: &str, _plaintext_warning: bool) -> bool {
     false
 }
 

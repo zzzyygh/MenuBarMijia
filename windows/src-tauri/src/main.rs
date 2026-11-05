@@ -679,16 +679,14 @@ mod tests {
     }
 
     #[test]
-    fn plaintext_warning_appears_only_for_public_http_origins() {
+    fn confirmation_message_appends_warning_only_when_requested() {
         let base = confirmation_message("https://ha.example.com", false);
         assert!(!base.contains(PLAINTEXT_WARNING));
-        assert_eq!(base, confirmation_message("https://ha.example.com", true));
 
-        let local_http = confirmation_message("http://192.168.1.8:8123", true);
+        let local_http = confirmation_message("http://192.168.1.8:8123", false);
         assert!(!local_http.contains(PLAINTEXT_WARNING));
-        assert_eq!(local_http, confirmation_message("http://192.168.1.8:8123", true));
 
-        let public_http = confirmation_message("http://ha.example.com:8123", false);
+        let public_http = confirmation_message("http://ha.example.com:8123", true);
         assert!(public_http.contains(PLAINTEXT_WARNING));
         assert!(public_http.starts_with("允许 MenuBarMijia 连接这个地址吗？"));
     }
@@ -707,7 +705,12 @@ mod tests {
             } else {
                 format!("http://{host}")
             };
-            let message = confirmation_message(&url, is_local);
+            let requested = requested_service_origins("", &url, false, is_local)
+                .expect("golden endpoint must parse");
+            assert!(requested.rejected_assistant.is_none(), "{host}");
+            assert_eq!(requested.origins.len(), 1, "{host}");
+            let (origin, warning) = requested.origins.iter().next().expect("requested origin");
+            let message = confirmation_message(origin, *warning);
             assert_eq!(
                 message.contains(PLAINTEXT_WARNING),
                 !is_local,
@@ -719,9 +722,11 @@ mod tests {
     #[test]
     fn public_plaintext_home_assistant_asks_with_a_warning_but_lan_and_https_do_not() {
         let empty = HashSet::new();
-        let prompts = std::cell::RefCell::new(Vec::<(String, bool)>::new());
+        let prompts = std::cell::RefCell::new(Vec::<(String, String)>::new());
         let confirm = |origin: &str, warning: bool| {
-            prompts.borrow_mut().push((origin.to_string(), warning));
+            prompts
+                .borrow_mut()
+                .push((origin.to_string(), confirmation_message(origin, warning)));
             true
         };
 
@@ -734,13 +739,14 @@ mod tests {
             confirm,
         )
         .expect("public plaintext Home Assistant is confirmed");
-        assert_eq!(
-            *prompts.borrow(),
-            vec![
-                ("http://ha.example.com:8123".to_string(), true),
-                ("https://api.deepseek.com:443".to_string(), false),
-            ]
-        );
+        let messages = prompts.borrow();
+        assert!(messages.iter().any(|(origin, message)| {
+            origin == "http://ha.example.com:8123" && message.contains(PLAINTEXT_WARNING)
+        }));
+        assert!(messages.iter().any(|(origin, message)| {
+            origin == "https://api.deepseek.com:443" && !message.contains(PLAINTEXT_WARNING)
+        }));
+        drop(messages);
 
         prompts.borrow_mut().clear();
         decide_service_origins(
@@ -752,13 +758,11 @@ mod tests {
             confirm,
         )
         .expect("LAN Home Assistant is confirmed");
-        assert_eq!(
-            *prompts.borrow(),
-            vec![
-                ("http://192.168.1.8:8123".to_string(), false),
-                ("https://api.deepseek.com:443".to_string(), false),
-            ]
-        );
+        let messages = prompts.borrow();
+        assert!(messages.iter().any(|(origin, message)| {
+            origin == "http://192.168.1.8:8123" && !message.contains(PLAINTEXT_WARNING)
+        }));
+        drop(messages);
 
         prompts.borrow_mut().clear();
         decide_service_origins(
@@ -770,31 +774,69 @@ mod tests {
             confirm,
         )
         .expect("HTTPS Home Assistant is confirmed");
-        assert_eq!(
-            *prompts.borrow(),
-            vec![
-                ("https://api.deepseek.com:443".to_string(), false),
-                ("https://ha.example.com:443".to_string(), false),
-            ]
-        );
+        assert!(prompts
+            .borrow()
+            .iter()
+            .all(|(_, message)| !message.contains(PLAINTEXT_WARNING)));
     }
 
     #[test]
-    fn public_plaintext_ai_endpoints_are_rejected_before_any_confirmation() {
-        let mut prompts = 0;
+    fn public_plaintext_ai_endpoints_are_rejected_without_prompting_their_origin() {
+        let prompts = std::cell::RefCell::new(Vec::<(String, bool)>::new());
         let rejected = decide_service_origins(
             &HashSet::new(),
             "http://api.deepseek.com/v1",
             "http://ha.example.com:8123/api",
             false,
             false,
-            |_, _| {
-                prompts += 1;
+            |origin, warning| {
+                prompts.borrow_mut().push((origin.to_string(), warning));
                 true
             },
         );
         assert!(rejected.is_err());
-        assert_eq!(prompts, 0, "public plaintext AI must not open a dialog");
+        let prompts = prompts.borrow();
+        assert!(
+            !prompts
+                .iter()
+                .any(|(origin, _)| origin == "http://api.deepseek.com:80"),
+            "public plaintext AI must not open a dialog"
+        );
+        assert!(
+            prompts
+                .iter()
+                .any(|(origin, warning)| origin == "http://ha.example.com:8123" && *warning),
+            "an independently valid Home Assistant endpoint must still be confirmed"
+        );
+    }
+
+    #[test]
+    fn public_plaintext_ai_rejection_does_not_block_a_valid_home_assistant_origin() {
+        let _guard = ORIGIN_TEST_LOCK.lock().unwrap();
+        {
+            let mut guard = EXTRA_ALLOWED_ORIGINS.write().expect("allowlist lock");
+            guard.clear();
+        }
+        let prompts = std::cell::RefCell::new(Vec::<(String, bool)>::new());
+        let result = authorize_service_endpoints(
+            "http://api.deepseek.com/v1",
+            "https://ha.example.com/api",
+            false,
+            false,
+            |origin, warning| {
+                prompts.borrow_mut().push((origin.to_string(), warning));
+                true
+            },
+        );
+        let allowed = allowed_origins_snapshot().expect("allowlist snapshot");
+        EXTRA_ALLOWED_ORIGINS.write().expect("allowlist lock").clear();
+        assert!(result.is_err(), "public plaintext AI must still be rejected");
+        assert_eq!(
+            *prompts.borrow(),
+            vec![("https://ha.example.com:443".to_string(), false)]
+        );
+        assert!(allowed.contains("https://ha.example.com:443"));
+        assert!(!allowed.contains("http://api.deepseek.com:80"));
     }
 
     #[test]
